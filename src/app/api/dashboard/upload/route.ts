@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
 import * as XLSX from 'xlsx';
 
 export const maxDuration = 60;
+
+// Dynamic import db supaya error database bisa di-catch
+async function getDb() {
+  const { db } = await import('@/lib/db');
+  if (!db) {
+    throw new Error('Database tidak tersedia. Jalankan: npx prisma db push');
+  }
+  return db;
+}
 
 function normalizeHeader(header: string): string {
   return header.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '');
@@ -110,7 +118,6 @@ function parseFundingFromSheet(sheet: XLSX.WorkSheet): { nama: string; noaBefore
   const colMutasiNoa = findColumn(headers, 'Mutasi NOA', 'mutasi noa', 'MutasiNoa');
   const colMutasiOs = findColumn(headers, 'Mutasi OS', 'mutasi os', 'MutasiOs');
 
-  // Fallback: simple format (NOA, OS, Mutasi)
   const colNoa = findColumn(headers, 'NOA', 'noa');
   const colOs = findColumn(headers, 'OS', 'os');
   const colMutasi = findColumn(headers, 'Mutasi', 'mutasi');
@@ -134,36 +141,33 @@ function parseFundingFromSheet(sheet: XLSX.WorkSheet): { nama: string; noaBefore
       const noaNow = parseNumber(colNoa >= 0 ? vals[colNoa] : 0);
       const osNow = parseNumber(colOs >= 0 ? vals[colOs] : 0);
       const mutasi = parseNumber(colMutasi >= 0 ? vals[colMutasi] : 0);
-      return {
-        nama,
-        noaBefore: 0,
-        osBefore: osNow - mutasi,
-        noaNow,
-        osNow,
-        mutasiNoa: 0,
-        mutasiOs: mutasi,
-      };
+      return { nama, noaBefore: 0, osBefore: osNow - mutasi, noaNow, osNow, mutasiNoa: 0, mutasiOs: mutasi };
     }
   }).filter(Boolean) as { nama: string; noaBefore: number; osBefore: number; noaNow: number; osNow: number; mutasiNoa: number; mutasiOs: number }[];
 }
 
-// Find the best sheet in a workbook by keywords
 function findSheet(workbook: XLSX.WorkBook, keywords: string[]): XLSX.WorkSheet | null {
-  // Try matching by sheet name
   for (const keyword of keywords) {
     const found = workbook.SheetNames.find(s => s.toLowerCase().includes(keyword.toLowerCase()));
     if (found) return workbook.Sheets[found];
   }
-  // Fallback: first sheet
   return workbook.Sheets[0] || null;
 }
 
 export async function POST(request: NextRequest) {
+  let db;
+  try {
+    db = await getDb();
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: `Database error: ${msg}` }, { status: 500 });
+  }
+
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const uploadDate = formData.get('uploadDate') as string;
-    const sheetType = formData.get('sheetType') as string | null; // 'kredit', 'tabungan', 'deposito', or null (full mode)
+    const sheetType = formData.get('sheetType') as string | null;
 
     if (!file) {
       return NextResponse.json({ error: 'File tidak ditemukan' }, { status: 400 });
@@ -176,16 +180,13 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const workbook = XLSX.read(buffer, { type: 'buffer' });
 
-    // =============================================
-    // MODE: Per-Table Upload (sheetType specified)
-    // =============================================
+    // MODE: Per-Table Upload
     if (sheetType) {
       const sheet = findSheet(workbook, [sheetType === 'kredit' ? 'kredit' : sheetType === 'tabungan' ? 'tabungan' : 'deposito']);
       if (!sheet) {
-        return NextResponse.json({ error: `Sheet tidak ditemukan dalam file` }, { status: 400 });
+        return NextResponse.json({ error: 'Sheet tidak ditemukan dalam file' }, { status: 400 });
       }
 
-      // Find or create upload record for this date
       let upload = await db.dashboardUpload.findFirst({ where: { uploadDate } });
       if (!upload) {
         upload = await db.dashboardUpload.create({
@@ -198,107 +199,51 @@ export async function POST(request: NextRequest) {
         if (data.length === 0) {
           return NextResponse.json({ error: 'Tidak ada data kredit yang bisa diparsing' }, { status: 400 });
         }
-        // Delete old kredit data for this upload
         await db.kreditAO.deleteMany({ where: { uploadId: upload.id } });
         await db.kreditAO.createMany({
-          data: data.map(d => ({
-            uploadId: upload!.id,
-            nama: d.nama,
-            noa: d.noa,
-            os: d.os,
-            lancar: d.lancar,
-            dpk: d.dpk,
-            totNpl: d.totNpl,
-            rr: d.rr,
-            npl: d.npl,
-          }))
+          data: data.map(d => ({ uploadId: upload!.id, nama: d.nama, noa: d.noa, os: d.os, lancar: d.lancar, dpk: d.dpk, totNpl: d.totNpl, rr: d.rr, npl: d.npl }))
         });
 
-        // Also try to parse mutasi from the same file (second sheet)
-        const mutasiSheet = workbook.Sheets.find(s => {
-          const name = s.toLowerCase();
-          return name.includes('mutasi');
-        });
+        const mutasiSheet = workbook.Sheets.find(s => s.toLowerCase().includes('mutasi'));
         if (mutasiSheet) {
           const mutasiData = parseMutasiFromSheet(mutasiSheet);
           if (mutasiData.length > 0) {
             await db.mutasiAO.deleteMany({ where: { uploadId: upload.id } });
             await db.mutasiAO.createMany({
-              data: mutasiData.map(d => ({
-                uploadId: upload!.id,
-                nama: d.nama,
-                noaBefore: d.noaBefore,
-                osBefore: d.osBefore,
-                noaNow: d.noaNow,
-                osNow: d.osNow,
-                mutasiNoa: d.mutasiNoa,
-                mutasiOs: d.mutasiOs,
-              }))
+              data: mutasiData.map(d => ({ uploadId: upload!.id, nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore, noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs }))
             });
           }
         }
 
-        return NextResponse.json({
-          success: true,
-          message: `Kredit berhasil diupload`,
-          stats: { kredit: data.length, mutasi: 0, tabungan: 0, deposito: 0 }
-        });
+        return NextResponse.json({ success: true, stats: { kredit: data.length, mutasi: 0, tabungan: 0, deposito: 0 } });
 
       } else if (sheetType === 'tabungan') {
         const data = parseFundingFromSheet(sheet);
         if (data.length === 0) {
-          return NextResponse.json({ error: 'Tidak ada data tabungan yang bisa diparsing' }, { status: 400 });
+          return NextResponse.json({ error: 'Tidak ada data tabungan' }, { status: 400 });
         }
         await db.tabunganFO.deleteMany({ where: { uploadId: upload.id } });
         await db.tabunganFO.createMany({
-          data: data.map(d => ({
-            uploadId: upload!.id,
-            nama: d.nama,
-            noaBefore: d.noaBefore,
-            osBefore: d.osBefore,
-            noaNow: d.noaNow,
-            osNow: d.osNow,
-            mutasiNoa: d.mutasiNoa,
-            mutasiOs: d.mutasiOs,
-          }))
+          data: data.map(d => ({ uploadId: upload!.id, nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore, noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs }))
         });
-        return NextResponse.json({
-          success: true,
-          message: `Tabungan berhasil diupload`,
-          stats: { kredit: 0, mutasi: 0, tabungan: data.length, deposito: 0 }
-        });
+        return NextResponse.json({ success: true, stats: { kredit: 0, mutasi: 0, tabungan: data.length, deposito: 0 } });
 
       } else if (sheetType === 'deposito') {
         const data = parseFundingFromSheet(sheet);
         if (data.length === 0) {
-          return NextResponse.json({ error: 'Tidak ada data deposito yang bisa diparsing' }, { status: 400 });
+          return NextResponse.json({ error: 'Tidak ada data deposito' }, { status: 400 });
         }
         await db.depositoFO.deleteMany({ where: { uploadId: upload.id } });
         await db.depositoFO.createMany({
-          data: data.map(d => ({
-            uploadId: upload!.id,
-            nama: d.nama,
-            noaBefore: d.noaBefore,
-            osBefore: d.osBefore,
-            noaNow: d.noaNow,
-            osNow: d.osNow,
-            mutasiNoa: d.mutasiNoa,
-            mutasiOs: d.mutasiOs,
-          }))
+          data: data.map(d => ({ uploadId: upload!.id, nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore, noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs }))
         });
-        return NextResponse.json({
-          success: true,
-          message: `Deposito berhasil diupload`,
-          stats: { kredit: 0, mutasi: 0, tabungan: 0, deposito: data.length }
-        });
+        return NextResponse.json({ success: true, stats: { kredit: 0, mutasi: 0, tabungan: 0, deposito: data.length } });
       }
 
       return NextResponse.json({ error: 'Tipe sheet tidak valid' }, { status: 400 });
     }
 
-    // =============================================
-    // MODE: Full Upload (single multi-sheet file)
-    // =============================================
+    // MODE: Full Upload
     const kreditSheet = findSheet(workbook, ['kredit', 'ao', 'credit']);
     const mutasiSheet = findSheet(workbook, ['mutasi']);
     const tabunganSheet = findSheet(workbook, ['tabungan', 'saving']);
@@ -306,7 +251,7 @@ export async function POST(request: NextRequest) {
 
     if (!kreditSheet && !mutasiSheet && !tabunganSheet && !depositoSheet) {
       return NextResponse.json({
-        error: `Sheet tidak ditemukan. Sheet yang ada: ${workbook.SheetNames.join(', ')}. Harus ada sheet: Kredit, Mutasi, Tabungan, Deposito.`
+        error: `Sheet tidak ditemukan. Sheet yang ada: ${workbook.SheetNames.join(', ')}. Harus ada: Kredit, Mutasi, Tabungan, Deposito.`
       }, { status: 400 });
     }
 
@@ -316,14 +261,10 @@ export async function POST(request: NextRequest) {
     const depositoData = depositoSheet ? parseFundingFromSheet(depositoSheet) : [];
 
     if (kreditData.length === 0 && mutasiData.length === 0 && tabunganData.length === 0 && depositoData.length === 0) {
-      return NextResponse.json({ error: 'Tidak ada data yang dapat diparsing dari file Excel. Pastikan file memiliki sheet yang benar.' }, { status: 400 });
+      return NextResponse.json({ error: 'Tidak ada data yang bisa diparsing dari file.' }, { status: 400 });
     }
 
-    // Check if data already exists for this date
-    const existingUpload = await db.dashboardUpload.findFirst({
-      where: { uploadDate }
-    });
-
+    const existingUpload = await db.dashboardUpload.findFirst({ where: { uploadDate } });
     if (existingUpload) {
       await db.kreditAO.deleteMany({ where: { uploadId: existingUpload.id } });
       await db.mutasiAO.deleteMany({ where: { uploadId: existingUpload.id } });
@@ -332,55 +273,24 @@ export async function POST(request: NextRequest) {
       await db.dashboardUpload.delete({ where: { id: existingUpload.id } });
     }
 
-    const upload = await db.dashboardUpload.create({
+    await db.dashboardUpload.create({
       data: {
-        fileName: file.name,
-        uploadDate,
-        kreditAO: {
-          create: kreditData.map(d => ({
-            nama: d.nama, noa: d.noa, os: d.os, lancar: d.lancar,
-            dpk: d.dpk, totNpl: d.totNpl, rr: d.rr, npl: d.npl,
-          }))
-        },
-        mutasiAO: {
-          create: mutasiData.map(d => ({
-            nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore,
-            noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs,
-          }))
-        },
-        tabunganFO: {
-          create: tabunganData.map(d => ({
-            nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore,
-            noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs,
-          }))
-        },
-        depositoFO: {
-          create: depositoData.map(d => ({
-            nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore,
-            noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs,
-          }))
-        }
+        fileName: file.name, uploadDate,
+        kreditAO: { create: kreditData.map(d => ({ nama: d.nama, noa: d.noa, os: d.os, lancar: d.lancar, dpk: d.dpk, totNpl: d.totNpl, rr: d.rr, npl: d.npl })) },
+        mutasiAO: { create: mutasiData.map(d => ({ nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore, noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs })) },
+        tabunganFO: { create: tabunganData.map(d => ({ nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore, noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs })) },
+        depositoFO: { create: depositoData.map(d => ({ nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore, noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs })) },
       }
     });
 
     return NextResponse.json({
       success: true,
-      message: 'File berhasil diupload dan diparsing',
-      uploadId: upload.id,
-      uploadDate: upload.uploadDate,
-      stats: {
-        kredit: kreditData.length,
-        mutasi: mutasiData.length,
-        tabungan: tabunganData.length,
-        deposito: depositoData.length,
-      }
+      stats: { kredit: kreditData.length, mutasi: mutasiData.length, tabungan: tabunganData.length, deposito: depositoData.length }
     });
 
   } catch (error) {
     console.error('Upload error:', error);
     const msg = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({
-      error: `Upload gagal: ${msg}`
-    }, { status: 500 });
+    return NextResponse.json({ error: `Upload gagal: ${msg}` }, { status: 500 });
   }
 }
