@@ -70,7 +70,7 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
     setDraggingType(null)
   }
 
-  // ========== GLOBAL DRAG & DROP (document-level untuk Portal compatibility) ==========
+  // ========== GLOBAL DRAG & DROP (document-level for Portal compatibility) ==========
   useEffect(() => {
     if (!open) return
 
@@ -272,8 +272,14 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
         onOpenChange(false)
       }, 1500)
 
-    } catch {
-      setError('Terjadi kesalahan saat upload')
+    } catch (err) {
+      console.error('Upload catch error:', err)
+      const msg = err instanceof TypeError 
+        ? 'Gagal koneksi ke server. Coba refresh halaman.' 
+        : err instanceof Error 
+          ? err.message 
+          : 'Terjadi kesalahan saat upload'
+      setError(msg)
     } finally {
       setLoading(false)
     }
