@@ -216,10 +216,12 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
         formData.append('uploadDate', dateStr)
 
         const res = await fetch('/api/dashboard/upload', { method: 'POST', body: formData })
-        const data = await res.json()
+        const raw = await res.text()
+        let data: Record<string, unknown> = {}
+        try { data = JSON.parse(raw) } catch { setError(`Server error: ${raw.slice(0, 300)}`); return }
 
         if (!res.ok) {
-          setError(data.error || 'Gagal upload file')
+          setError((data.error as string) || 'Gagal upload file')
           return
         }
 
@@ -249,14 +251,16 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
           formData.append('sheetType', uf.type)
 
           const res = await fetch('/api/dashboard/upload', { method: 'POST', body: formData })
-          const data = await res.json()
+          const raw = await res.text()
+          let data: Record<string, unknown> = {}
+          try { data = JSON.parse(raw) } catch { setError(`${TABLE_INFO[uf.type].label}: Server error`); return }
 
           if (!res.ok) {
             setError(`${TABLE_INFO[uf.type].label}: ${data.error || 'Gagal'}`)
             return
           }
 
-          const statCount = data.stats?.kredit || data.stats?.tabungan || data.stats?.deposito || 0
+          const statCount = (data.stats as Record<string, number>)?.kredit || (data.stats as Record<string, number>)?.tabungan || (data.stats as Record<string, number>)?.deposito || 0
           results.push(`${TABLE_INFO[uf.type].label} (${statCount} baris)`)
         }
 
