@@ -57,6 +57,12 @@ export async function GET(request: NextRequest) {
       totalDeposito: u.depositoFO.reduce((sum, d) => sum + d.osNow, 0),
     }));
 
+    // Parse dailyData from JSON string for each kredit record
+    const kreditAOParsed = upload.kreditAO.map(k => ({
+      ...k,
+      dailyData: typeof k.dailyData === 'string' ? JSON.parse(k.dailyData || '{}') : (k.dailyData || {}),
+    }));
+
     return NextResponse.json({
       uploadDate: upload.uploadDate,
       fileName: upload.fileName,
@@ -65,7 +71,7 @@ export async function GET(request: NextRequest) {
         totalMutasiOs, totalMutasiTabungan, totalMutasiDeposito,
         totalLancar, totalDpk, totalTotNpl, komposisi,
       },
-      kreditAO: upload.kreditAO,
+      kreditAO: kreditAOParsed,
       mutasiAO: upload.mutasiAO,
       tabunganFO: upload.tabunganFO,
       depositoFO: upload.depositoFO,
