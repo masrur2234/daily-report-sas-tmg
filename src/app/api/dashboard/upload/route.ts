@@ -389,10 +389,36 @@ export async function POST(request: NextRequest) {
     }
 
     // MODE: Full Upload
+    console.log(`[Upload] Available sheets: ${workbook.SheetNames.join(', ')}`);
+
+    // Cari sheet dengan exact match dulu, baru contains match
     const kreditSheet = findSheet(workbook, ['kredit', 'ao', 'credit']);
     const mutasiSheet = findSheet(workbook, ['mutasi']);
-    const tabunganSheet = findSheet(workbook, ['tabungan', 'saving'], ['deposito', 'deposit']);
-    const depositoSheet = findSheet(workbook, ['deposito', 'deposit', 'time deposit'], ['tabungan', 'saving']);
+    // Tabungan: prefer exact 'tabungan', hindari yang juga ada kata 'deposito'
+    const tabunganSheet = findSheet(workbook, ['tabungan', 'saving']);
+    // Deposito: prefer exact 'deposito', fallback ke 'deposit'
+    let depositoSheet = findSheet(workbook, ['deposito', 'time deposit']);
+
+    // Fallback: kalau deposito nggak ketemu, cari sheet yang belum kepake dan coba parse
+    if (!depositoSheet) {
+      const usedSheets = new Set<string>();
+      if (kreditSheet) usedSheets.add(JSON.stringify(kreditSheet));
+      if (mutasiSheet) usedSheets.add(JSON.stringify(mutasiSheet));
+      if (tabunganSheet) usedSheets.add(JSON.stringify(tabunganSheet));
+
+      for (const name of workbook.SheetNames) {
+        const sheet = workbook.Sheets[name];
+        if (!sheet) continue;
+        if (usedSheets.has(JSON.stringify(sheet))) continue;
+        // Coba parse, kalau dapat data >= 2 row, pakai ini
+        const testData = parseFundingSmart(sheet);
+        if (testData.length >= 2) {
+          depositoSheet = sheet;
+          console.log(`[Upload] Deposito fallback: using sheet "${name}" (${testData.length} rows)`);
+          break;
+        }
+      }
+    }
 
     console.log(`[Upload] Sheets found - kredit: ${!!kreditSheet}, mutasi: ${!!mutasiSheet}, tabungan: ${!!tabunganSheet}, deposito: ${!!depositoSheet}`);
 
