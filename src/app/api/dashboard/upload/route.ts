@@ -158,6 +158,7 @@ function findSheet(workbook: XLSX.WorkBook, keywords: string[]): XLSX.WorkSheet 
 }
 
 export async function POST(request: NextRequest) {
+  // ═════════════ DIAGNOSTIC: cek environment ═══════════
   let db: any;
   try {
     const { getDb } = await import('@/lib/db');
@@ -167,7 +168,16 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: `Database init error: ${msg}` }, { status: 500 });
+    // ═══ KEMBALIKAN DIAGNOSTIC INFO ═══
+    return NextResponse.json({
+      error: `Database init error: ${msg}`,
+      diagnostic: {
+        cwd: process.cwd(),
+        envDATABASE_URL: process.env.DATABASE_URL || 'NOT SET',
+        nodeEnv: process.env.NODE_ENV || 'NOT SET',
+        platform: process.platform,
+      }
+    }, { status: 500 });
   }
 
   try {
@@ -273,6 +283,13 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Upload error:', error);
     const msg = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: `Upload gagal: ${msg}` }, { status: 500 });
+    // ═══ KEMBALIKAN DIAGNOSTIC INFO ═══
+    return NextResponse.json({
+      error: `Upload gagal: ${msg}`,
+      diagnostic: {
+        cwd: process.cwd(),
+        envDATABASE_URL: process.env.DATABASE_URL || 'NOT SET',
+      }
+    }, { status: 500 });
   }
 }
