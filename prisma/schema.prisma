@@ -31,7 +31,7 @@ model KreditAO {
   totNpl    Float   @default(0)
   rr        Float   @default(0)
   npl       Float   @default(0)
-  dailyData String  @default("{}")
+  dailyData String  @default("{}")   // <-- BARU
 }
 
 model MutasiAO {
