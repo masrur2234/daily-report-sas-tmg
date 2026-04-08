@@ -1,11 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// DATABASE CONNECTION - NUCLEAR FIX
-// ═══════════════════════════════════════════════════════════════
-// Masalah: ESM hoisting menyebabkan static import dijalankan
-// SEBELUM env var di-set. Prisma resolve "file:./dev.db" beda
-// di CLI (relatif ke prisma/) vs runtime (relatif ke cwd).
-//
-// Solusi: Dynamic import + absolute path + create file if missing
+// DATABASE CONNECTION - VERCEL / SERVERLESS FIX
 // ═══════════════════════════════════════════════════════════════
 
 const globalForPrisma = globalThis as unknown as {
@@ -19,35 +13,42 @@ export async function getDb() {
 
   if (!dbPromise) {
     dbPromise = (async () => {
-      // 1. Dynamic import - TIDAK di-hoist oleh ESM
-      const [pathModule, fsModule] = await Promise.all([
-        import('path'),
-        import('fs')
-      ])
-
-      // 2. Absolute path ke prisma/dev.db
-      const DB_PATH = pathModule.join(process.cwd(), 'prisma', 'dev.db')
-      const DB_DIR = pathModule.dirname(DB_PATH)
-
-      // 3. Pastikan folder & file ada
-      if (!fsModule.existsSync(DB_DIR)) {
-        try { fsModule.mkdirSync(DB_DIR, { recursive: true }) } catch (e: any) {
-          console.error('[db] Gagal buat folder:', e.message)
-        }
-      }
-      if (!fsModule.existsSync(DB_PATH)) {
-        try { fsModule.writeFileSync(DB_PATH, '') } catch (e: any) {
-          console.error('[db] Gagal buat file db:', e.message)
-        }
-      }
-
-      // 4. Override env var dengan absolute path
-      process.env.DATABASE_URL = `file:${DB_PATH}`
-
-      // 5. Dynamic import PrismaClient
       const { PrismaClient } = await import('@prisma/client')
 
-      // 6. Buat PrismaClient dengan datasourceUrl ABSOLUTE
+      // Cek apakah ada DATABASE_URL PostgreSQL (untuk Vercel)
+      const envUrl = process.env.DATABASE_URL
+      const isPostgres = envUrl && (envUrl.startsWith('postgres://') || envUrl.startsWith('postgresql://'))
+
+      if (isPostgres) {
+        const prisma = new PrismaClient()
+        if (process.env.NODE_ENV !== 'production') {
+          globalForPrisma.prisma = prisma
+        }
+        console.log('[db] ✅ PostgreSQL mode')
+        return prisma
+      }
+
+      // LOCAL DEV: SQLite di prisma/dev.db
+      const path = await import('path')
+      const fs = await import('fs')
+      const isServerless = process.cwd() === '/var/task' || process.env.VERCEL
+      let DB_PATH: string
+
+      if (isServerless) {
+        DB_PATH = '/tmp/dev.db'
+        console.log('[db] ⚠️ Serverless - SQLite di /tmp (tidak persistent)')
+      } else {
+        DB_PATH = path.join(process.cwd(), 'prisma', 'dev.db')
+        const DB_DIR = path.dirname(DB_PATH)
+        if (!fs.existsSync(DB_DIR)) {
+          try { fs.mkdirSync(DB_DIR, { recursive: true }) } catch {}
+        }
+      }
+
+      if (!fs.existsSync(DB_PATH)) {
+        try { fs.writeFileSync(DB_PATH, '') } catch {}
+      }
+
       const prisma = new PrismaClient({
         datasourceUrl: `file:${DB_PATH}`
       })
@@ -56,8 +57,7 @@ export async function getDb() {
         globalForPrisma.prisma = prisma
       }
 
-      console.log('[db] ✅ Database terhubung:', DB_PATH)
-
+      console.log('[db] ✅ SQLite mode:', DB_PATH)
       return prisma
     })()
   }
