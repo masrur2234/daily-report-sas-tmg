@@ -1,5 +1,6 @@
-// TIDAK ADA static import PrismaClient!
-// ESM hoisting menyebabkan import dijalankan SEBELUM env var di-set.
+// TIDAK ADA static import!
+// ESM hoisting = import dijalankan SEBELUM kode lain.
+// Pakai dynamic import supaya env var bisa di-set/dihapus dulu.
 
 const globalForPrisma = globalThis as unknown as {
   prisma: any
@@ -12,10 +13,14 @@ export async function getDb() {
 
   if (!dbPromise) {
     dbPromise = (async () => {
-      // SET ENV VAR DULU, baru import PrismaClient
-      process.env.DATABASE_URL = 'file:./dev.db'
+      // HAPUS env var DATABASE_URL yang salah dari shell
+      // Biar Prisma pakai value dari schema.prisma: "file:./dev.db"
+      // yang resolve ke prisma/dev.db (BENAR)
+      delete process.env.DATABASE_URL
 
       const { PrismaClient } = await import('@prisma/client')
+      // JANGAN pass datasourceUrl! Biar Prisma pakai schema value.
+      // datasourceUrl resolve relatif ke cwd, schema resolve relatif ke prisma/
       const prisma = new PrismaClient()
 
       if (process.env.NODE_ENV !== 'production') {
