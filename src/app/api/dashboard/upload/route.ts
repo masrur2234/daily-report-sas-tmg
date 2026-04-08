@@ -35,10 +35,9 @@ function parseNumber(val: unknown): number {
 function extractDailyData(headers: string[], vals: unknown[]): Record<string, number> {
   const dailyData: Record<string, number> = {};
   for (let day = 1; day <= 31; day++) {
-    const dayStr1 = String(day);       // "1", "2", ..., "31"
-    const dayStr2 = String(day).padStart(2, '0'); // "01", "02", ..., "31"
+    const dayStr1 = String(day);
+    const dayStr2 = String(day).padStart(2, '0');
 
-    // Try various header patterns
     const patterns = [
       dayStr1, dayStr2,
       `tgl${dayStr1}`, `tgl${dayStr2}`,
@@ -93,8 +92,6 @@ function parseKreditFromSheet(sheet: XLSX.WorkSheet): { nama: string; noa: numbe
 
     const rr = hitungRR(lancar, os);
     const npl = hitungNPL(totNpl, os);
-
-    // Extract daily data columns (01-30)
     const dailyData = extractDailyData(headers, vals);
 
     return { nama, noa, os, lancar, dpk, totNpl, rr, npl, dailyData };
@@ -238,7 +235,6 @@ export async function POST(request: NextRequest) {
           }))
         });
 
-        // Also try to find mutasi sheet in the same file
         const mutasiSheet = workbook.SheetNames
           .map(name => workbook.Sheets[name])
           .find(s => {
