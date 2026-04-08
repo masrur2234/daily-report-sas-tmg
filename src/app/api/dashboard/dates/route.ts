@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
 
 export async function GET() {
   try {
+    const { db } = await import('@/lib/db');
+    if (!db) return NextResponse.json({ error: 'Database tidak tersedia' }, { status: 500 });
+
     const uploads = await db.dashboardUpload.findMany({
       orderBy: { uploadDate: 'desc' },
       select: {
@@ -15,7 +17,7 @@ export async function GET() {
         depositoFO: { select: { id: true } },
       }
     });
-    
+
     const dates = uploads.map(u => ({
       uploadDate: u.uploadDate,
       fileName: u.fileName,
@@ -27,13 +29,13 @@ export async function GET() {
         deposito: u.depositoFO.length,
       }
     }));
-    
+
     return NextResponse.json({ dates });
-    
+
   } catch (error) {
     console.error('Dates fetch error:', error);
-    return NextResponse.json({ 
-      error: error instanceof Error ? error.message : 'Terjadi kesalahan' 
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Terjadi kesalahan'
     }, { status: 500 });
   }
 }
