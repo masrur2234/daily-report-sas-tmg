@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
       totalDeposito: u.depositoFO.reduce((sum, d) => sum + d.osNow, 0),
     }));
 
-    // Parse dailyData from JSON string for each kredit record
+    // Parse dailyData dari JSON string untuk tiap kredit record
     const kreditAOParsed = upload.kreditAO.map(k => ({
       ...k,
       dailyData: typeof k.dailyData === 'string' ? JSON.parse(k.dailyData || '{}') : (k.dailyData || {}),
