@@ -3,15 +3,6 @@ import * as XLSX from 'xlsx';
 
 export const maxDuration = 60;
 
-// Dynamic import db supaya error database bisa di-catch
-async function getDb() {
-  const { db } = await import('@/lib/db');
-  if (!db) {
-    throw new Error('Database tidak tersedia. Jalankan: npx prisma db push');
-  }
-  return db;
-}
-
 function normalizeHeader(header: string): string {
   return header.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '');
 }
@@ -41,7 +32,38 @@ function parseNumber(val: unknown): number {
   return isNaN(num) ? 0 : num;
 }
 
-function parseKreditFromSheet(sheet: XLSX.WorkSheet): { nama: string; noa: number; os: number; lancar: number; dpk: number; totNpl: number; rr: number; npl: number }[] {
+function extractDailyData(headers: string[], vals: unknown[]): Record<string, number> {
+  const dailyData: Record<string, number> = {};
+  for (let day = 1; day <= 31; day++) {
+    const dayStr1 = String(day);       // "1", "2", ..., "31"
+    const dayStr2 = String(day).padStart(2, '0'); // "01", "02", ..., "31"
+
+    // Try various header patterns
+    const patterns = [
+      dayStr1, dayStr2,
+      `tgl${dayStr1}`, `tgl${dayStr2}`,
+      `tgl ${dayStr1}`, `tgl ${dayStr2}`,
+      `hari${dayStr1}`, `hari${dayStr2}`,
+      `hari ${dayStr1}`, `hari ${dayStr2}`,
+      `tanggal${dayStr1}`, `tanggal${dayStr2}`,
+      `tanggal ${dayStr1}`, `tanggal ${dayStr2}`,
+    ];
+
+    for (const pattern of patterns) {
+      const idx = headers.findIndex(h => normalizeHeader(h) === normalizeHeader(pattern));
+      if (idx !== -1) {
+        const val = parseNumber(vals[idx]);
+        if (val !== 0) {
+          dailyData[dayStr2] = val;
+        }
+        break;
+      }
+    }
+  }
+  return dailyData;
+}
+
+function parseKreditFromSheet(sheet: XLSX.WorkSheet): { nama: string; noa: number; os: number; lancar: number; dpk: number; totNpl: number; rr: number; npl: number; dailyData: Record<string, number> }[] {
   const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
   if (!jsonData.length) return [];
 
@@ -72,8 +94,11 @@ function parseKreditFromSheet(sheet: XLSX.WorkSheet): { nama: string; noa: numbe
     const rr = hitungRR(lancar, os);
     const npl = hitungNPL(totNpl, os);
 
-    return { nama, noa, os, lancar, dpk, totNpl, rr, npl };
-  }).filter(Boolean) as { nama: string; noa: number; os: number; lancar: number; dpk: number; totNpl: number; rr: number; npl: number }[];
+    // Extract daily data columns (01-30)
+    const dailyData = extractDailyData(headers, vals);
+
+    return { nama, noa, os, lancar, dpk, totNpl, rr, npl, dailyData };
+  }).filter(Boolean) as { nama: string; noa: number; os: number; lancar: number; dpk: number; totNpl: number; rr: number; npl: number; dailyData: Record<string, number> }[];
 }
 
 function parseMutasiFromSheet(sheet: XLSX.WorkSheet): { nama: string; noaBefore: number; osBefore: number; noaNow: number; osNow: number; mutasiNoa: number; mutasiOs: number }[] {
@@ -155,15 +180,19 @@ function findSheet(workbook: XLSX.WorkBook, keywords: string[]): XLSX.WorkSheet 
 }
 
 export async function POST(request: NextRequest) {
-  let db;
   try {
-    db = await getDb();
+    const { db } = await import('@/lib/db');
+    if (!db) {
+      return NextResponse.json({ error: 'Database tidak tersedia. Jalankan: npx prisma db push' }, { status: 500 });
+    }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: `Database error: ${msg}` }, { status: 500 });
+    return NextResponse.json({ error: `Database init error: ${msg}` }, { status: 500 });
   }
 
   try {
+    const { db } = await import('@/lib/db');
+
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const uploadDate = formData.get('uploadDate') as string;
@@ -184,7 +213,7 @@ export async function POST(request: NextRequest) {
     if (sheetType) {
       const sheet = findSheet(workbook, [sheetType === 'kredit' ? 'kredit' : sheetType === 'tabungan' ? 'tabungan' : 'deposito']);
       if (!sheet) {
-        return NextResponse.json({ error: 'Sheet tidak ditemukan dalam file' }, { status: 400 });
+        return NextResponse.json({ error: `Sheet tidak ditemukan dalam file. Sheet yang ada: ${workbook.SheetNames.join(', ')}` }, { status: 400 });
       }
 
       let upload = await db.dashboardUpload.findFirst({ where: { uploadDate } });
@@ -201,10 +230,21 @@ export async function POST(request: NextRequest) {
         }
         await db.kreditAO.deleteMany({ where: { uploadId: upload.id } });
         await db.kreditAO.createMany({
-          data: data.map(d => ({ uploadId: upload!.id, nama: d.nama, noa: d.noa, os: d.os, lancar: d.lancar, dpk: d.dpk, totNpl: d.totNpl, rr: d.rr, npl: d.npl }))
+          data: data.map(d => ({
+            uploadId: upload!.id,
+            nama: d.nama, noa: d.noa, os: d.os, lancar: d.lancar, dpk: d.dpk,
+            totNpl: d.totNpl, rr: d.rr, npl: d.npl,
+            dailyData: JSON.stringify(d.dailyData),
+          }))
         });
 
-        const mutasiSheet = workbook.Sheets.find(s => s.toLowerCase().includes('mutasi'));
+        // Also try to find mutasi sheet in the same file
+        const mutasiSheet = workbook.SheetNames
+          .map(name => workbook.Sheets[name])
+          .find(s => {
+            const sn = workbook.SheetNames[workbook.Sheets.indexOf(s)];
+            return sn && sn.toLowerCase().includes('mutasi');
+          });
         if (mutasiSheet) {
           const mutasiData = parseMutasiFromSheet(mutasiSheet);
           if (mutasiData.length > 0) {
@@ -243,7 +283,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tipe sheet tidak valid' }, { status: 400 });
     }
 
-    // MODE: Full Upload
+    // MODE: Full Upload (single file with all sheets)
     const kreditSheet = findSheet(workbook, ['kredit', 'ao', 'credit']);
     const mutasiSheet = findSheet(workbook, ['mutasi']);
     const tabunganSheet = findSheet(workbook, ['tabungan', 'saving']);
@@ -276,7 +316,13 @@ export async function POST(request: NextRequest) {
     await db.dashboardUpload.create({
       data: {
         fileName: file.name, uploadDate,
-        kreditAO: { create: kreditData.map(d => ({ nama: d.nama, noa: d.noa, os: d.os, lancar: d.lancar, dpk: d.dpk, totNpl: d.totNpl, rr: d.rr, npl: d.npl })) },
+        kreditAO: {
+          create: kreditData.map(d => ({
+            nama: d.nama, noa: d.noa, os: d.os, lancar: d.lancar, dpk: d.dpk,
+            totNpl: d.totNpl, rr: d.rr, npl: d.npl,
+            dailyData: JSON.stringify(d.dailyData),
+          }))
+        },
         mutasiAO: { create: mutasiData.map(d => ({ nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore, noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs })) },
         tabunganFO: { create: tabunganData.map(d => ({ nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore, noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs })) },
         depositoFO: { create: depositoData.map(d => ({ nama: d.nama, noaBefore: d.noaBefore, osBefore: d.osBefore, noaNow: d.noaNow, osNow: d.osNow, mutasiNoa: d.mutasiNoa, mutasiOs: d.mutasiOs })) },
