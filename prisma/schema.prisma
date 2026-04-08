@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model DashboardUpload {
@@ -31,7 +31,7 @@ model KreditAO {
   totNpl    Float   @default(0)
   rr        Float   @default(0)
   npl       Float   @default(0)
-  dailyData String  @default("{}")   // <-- BARU
+  dailyData String  @default("{}")
 }
 
 model MutasiAO {
