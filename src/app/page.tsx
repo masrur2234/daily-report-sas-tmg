@@ -51,11 +51,11 @@ interface DashboardData {
     noa: number
     os: number
     lancar: number
+    dpk1to30: number
     dpk: number
     totNpl: number
     rr: number
     npl: number
-    dailyData: Record<string, number>
   }>
   mutasiAO: Array<{
     id: string
