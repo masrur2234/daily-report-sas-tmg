@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, type DragEvent } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
@@ -42,6 +42,8 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
   const [singleFile, setSingleFile] = useState<File | null>(null)
   const [singleDragging, setSingleDragging] = useState(false)
   const singleInputRef = useRef<HTMLInputElement>(null)
+  const singleDragCounter = useRef(0)
+  const singleDropRef = useRef<HTMLDivElement>(null)
 
   // Separate file mode
   const [separateFiles, setSeparateFiles] = useState<UploadedFile[]>([])
@@ -50,6 +52,16 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
     kredit: null,
     tabungan: null,
     deposito: null,
+  })
+  const separateDropRefs = useRef<Record<TableType, HTMLDivElement | null>>({
+    kredit: null,
+    tabungan: null,
+    deposito: null,
+  })
+  const separateDragCounters = useRef<Record<TableType, number>>({
+    kredit: 0,
+    tabungan: 0,
+    deposito: 0,
   })
 
   const resetState = () => {
@@ -60,8 +72,32 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
     setLoading(false)
   }
 
-  const handleSingleDrop = useCallback((e: React.DragEvent) => {
+  const handleSingleDragEnter = useCallback((e: DragEvent) => {
     e.preventDefault()
+    e.stopPropagation()
+    singleDragCounter.current++
+    if (singleDragCounter.current === 1) setSingleDragging(true)
+  }, [])
+
+  const handleSingleDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }, [])
+
+  const handleSingleDragLeave = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    singleDragCounter.current--
+    if (singleDragCounter.current <= 0) {
+      singleDragCounter.current = 0
+      setSingleDragging(false)
+    }
+  }, [])
+
+  const handleSingleDrop = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    singleDragCounter.current = 0
     setSingleDragging(false)
     const file = e.dataTransfer.files[0]
     if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
@@ -77,8 +113,32 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
     if (file) { setSingleFile(file); setError(null) }
   }, [])
 
-  const handleSeparateDrop = useCallback((e: React.DragEvent, type: TableType) => {
+  const handleSeparateDragEnter = useCallback((e: DragEvent, type: TableType) => {
     e.preventDefault()
+    e.stopPropagation()
+    separateDragCounters.current[type]++
+    if (separateDragCounters.current[type] === 1) setDraggingType(type)
+  }, [])
+
+  const handleSeparateDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }, [])
+
+  const handleSeparateDragLeave = useCallback((e: DragEvent, type: TableType) => {
+    e.preventDefault()
+    e.stopPropagation()
+    separateDragCounters.current[type]--
+    if (separateDragCounters.current[type] <= 0) {
+      separateDragCounters.current[type] = 0
+      setDraggingType(null)
+    }
+  }, [])
+
+  const handleSeparateDrop = useCallback((e: DragEvent, type: TableType) => {
+    e.preventDefault()
+    e.stopPropagation()
+    separateDragCounters.current[type] = 0
     setDraggingType(null)
     const file = e.dataTransfer.files[0]
     if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
@@ -220,7 +280,10 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetState(); onOpenChange(v) }}>
-      <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto"
+        onDragOver={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
@@ -276,15 +339,17 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
                 Upload <span className="font-semibold">1 file Excel</span> yang berisi semua data (multi-sheet: Kredit, Mutasi, Tabungan, Deposito).
               </p>
               <div
-                className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+                ref={singleDropRef}
+                className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 cursor-pointer ${
                   singleDragging
-                    ? 'border-blue-500 bg-blue-50'
+                    ? 'border-blue-500 bg-blue-50 scale-[1.02] shadow-lg shadow-blue-100'
                     : singleFile
                     ? 'border-green-500 bg-green-50'
-                    : 'border-muted-foreground/25 hover:border-blue-400'
+                    : 'border-muted-foreground/25 hover:border-blue-400 hover:bg-muted/30'
                 }`}
-                onDragOver={(e) => { e.preventDefault(); setSingleDragging(true) }}
-                onDragLeave={() => setSingleDragging(false)}
+                onDragEnter={handleSingleDragEnter}
+                onDragOver={handleSingleDragOver}
+                onDragLeave={handleSingleDragLeave}
                 onDrop={handleSingleDrop}
                 onClick={() => singleInputRef.current?.click()}
               >
@@ -309,9 +374,9 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-2">
-                    <FileSpreadsheet className="h-10 w-10 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">
-                      Drag & drop atau <span className="text-blue-600 font-medium">klik untuk pilih</span>
+                    <FileSpreadsheet className={`h-10 w-10 ${singleDragging ? 'text-blue-500 animate-bounce' : 'text-muted-foreground'}`} />
+                    <p className={`text-sm ${singleDragging ? 'text-blue-600 font-semibold' : 'text-muted-foreground'}`}>
+                      {singleDragging ? 'Lepaskan file di sini...' : <>Drag & drop atau <span className="text-blue-600 font-medium">klik untuk pilih</span></>}
                     </p>
                     <p className="text-xs text-muted-foreground">.xlsx / .xls (multi-sheet)</p>
                   </div>
@@ -355,11 +420,13 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
                       </div>
                     ) : (
                       <div
-                        className={`border border-dashed rounded-md p-4 text-center cursor-pointer transition-colors ${
-                          draggingType === type ? 'border-blue-400 bg-blue-50' : 'border-muted-foreground/20 hover:border-blue-300'
+                        ref={(el) => { separateDropRefs.current[type] = el }}
+                        className={`border border-dashed rounded-md p-4 text-center cursor-pointer transition-all duration-200 ${
+                          draggingType === type ? 'border-blue-400 bg-blue-50 scale-[1.02] shadow-md shadow-blue-100' : 'border-muted-foreground/20 hover:border-blue-300 hover:bg-muted/20'
                         }`}
-                        onDragOver={(e) => { e.preventDefault(); setDraggingType(type) }}
-                        onDragLeave={() => setDraggingType(null)}
+                        onDragEnter={(e) => handleSeparateDragEnter(e, type)}
+                        onDragOver={handleSeparateDragOver}
+                        onDragLeave={(e) => handleSeparateDragLeave(e, type)}
                         onDrop={(e) => handleSeparateDrop(e, type)}
                         onClick={() => separateInputRefs.current[type]?.click()}
                       >
@@ -370,8 +437,10 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
                           className="hidden"
                           onChange={(e) => handleSeparateFileChange(e, type)}
                         />
-                        <Upload className="h-4 w-4 text-muted-foreground mx-auto mb-1" />
-                        <p className="text-[10px] text-muted-foreground">Drag & drop atau klik</p>
+                        <Upload className={`h-4 w-4 mx-auto mb-1 ${draggingType === type ? 'text-blue-500 animate-bounce' : 'text-muted-foreground'}`} />
+                        <p className={`text-[10px] ${draggingType === type ? 'text-blue-600 font-semibold' : 'text-muted-foreground'}`}>
+                          {draggingType === type ? 'Lepaskan di sini...' : 'Drag & drop atau klik'}
+                        </p>
                       </div>
                     )}
 
