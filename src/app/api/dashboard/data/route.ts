@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
   try {
-    const { db } = await import('@/lib/db');
+    const { getDb } = await import('@/lib/db');
+    const db = await getDb();
     if (!db) return NextResponse.json({ error: 'Database tidak tersedia' }, { status: 500 });
 
     const { searchParams } = new URL(request.url);
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
       totalDeposito: u.depositoFO.reduce((sum, d) => sum + d.osNow, 0),
     }));
 
-    // Parse dailyData dari JSON string untuk tiap kredit record
+    // Parse dailyData dari JSON string
     const kreditAOParsed = upload.kreditAO.map(k => ({
       ...k,
       dailyData: typeof k.dailyData === 'string' ? JSON.parse(k.dailyData || '{}') : (k.dailyData || {}),
