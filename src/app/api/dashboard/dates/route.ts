@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {
-    const { db } = await import('@/lib/db');
+    const { getDb } = await import('@/lib/db');
+    const db = await getDb();
     if (!db) return NextResponse.json({ error: 'Database tidak tersedia' }, { status: 500 });
 
     const uploads = await db.dashboardUpload.findMany({
