@@ -55,6 +55,7 @@ interface DashboardData {
     totNpl: number
     rr: number
     npl: number
+    dailyData: Record<string, number>
   }>
   mutasiAO: Array<{
     id: string
