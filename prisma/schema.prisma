@@ -12,7 +12,7 @@ model DashboardUpload {
   fileName  String
   uploadDate String
   createdAt DateTime @default(now())
-  
+
   kreditAO     KreditAO[]
   mutasiAO     MutasiAO[]
   tabunganFO   TabunganFO[]
@@ -31,6 +31,7 @@ model KreditAO {
   totNpl    Float   @default(0)
   rr        Float   @default(0)
   npl       Float   @default(0)
+  dailyData String  @default("{}")
 }
 
 model MutasiAO {
