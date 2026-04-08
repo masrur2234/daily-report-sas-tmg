@@ -199,7 +199,7 @@ function KreditTable({ data, filters }: { data: KreditAO[]; filters: DataTablesP
                 <th className={thRightClass} style={{ cursor: 'pointer' }} onClick={() => toggleSort('lancar')}>
                   LANCAR {sortKey === 'lancar' ? (sortDir === 'asc' ? <ArrowUp className="h-3 w-3 ml-1 inline" /> : <ArrowDown className="h-3 w-3 ml-1 inline" />) : <ArrowUpDown className="h-3 w-3 ml-1 inline opacity-40" />}
                 </th>
-                <th className={thRightClass}>01-30 HARI</th>
+                <th className={thRightClass}>01-30</th>
                 <th className={thRightClass}>DPK</th>
                 <th className={thRightClass}>TOT NPL</th>
                 <th className={thRightClass} style={{ cursor: 'pointer' }} onClick={() => toggleSort('rr')}>
@@ -232,7 +232,7 @@ function KreditTable({ data, filters }: { data: KreditAO[]; filters: DataTablesP
                         <td className={tdClass}>{item.noa.toLocaleString('id-ID')}</td>
                         <td className={tdClass}>{formatRupiah(item.os)}</td>
                         <td className={`${tdClass} text-green-700 font-semibold`}>{formatRupiah(item.lancar)}</td>
-                        <td className={tdClass}>{formatRupiah(item.dpk + item.totNpl > 0 ? Math.abs(item.os - item.lancar - item.dpk) : 0)}</td>
+                        <td className={`${tdClass} text-teal-700`}>{formatRupiah(Object.values(dd).reduce((s, v) => s + v, 0))}</td>
                         <td className={`${tdClass} text-yellow-700`}>{formatRupiah(item.dpk)}</td>
                         <td className={`${tdClass} text-red-600 font-semibold`}>{formatRupiah(item.totNpl)}</td>
                         <td className={`${tdClass} text-center font-semibold ${item.rr > 80 ? 'text-green-700' : item.rr >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
@@ -260,7 +260,7 @@ function KreditTable({ data, filters }: { data: KreditAO[]; filters: DataTablesP
                     <td className={tdClass}>{totals.noa.toLocaleString('id-ID')}</td>
                     <td className={tdClass}>{formatRupiah(totals.os)}</td>
                     <td className={tdClass}>{formatRupiah(totals.lancar)}</td>
-                    <td className={tdClass}>{formatRupiah(totals.os - totals.lancar - totals.dpk > 0 ? totals.os - totals.lancar - totals.dpk : 0)}</td>
+                    <td className={tdClass}>{formatRupiah(Object.values(totals.dailyTotals).reduce((s, v) => s + v, 0))}</td>
                     <td className={tdClass}>{formatRupiah(totals.dpk)}</td>
                     <td className={tdClass}>{formatRupiah(totals.totNpl)}</td>
                     <td className={`${tdClass} text-center`}>{totals.rr.toFixed(2)}</td>
