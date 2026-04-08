@@ -5,20 +5,21 @@ export async function GET() {
   try {
     const workbook = XLSX.utils.book_new();
 
-    // ═══ Sheet 1: Kredit AO (with 01-30 daily columns) ═══
-    const kreditHeaders = ['Nama AO', 'NOA', 'OS', 'LANCAR', '01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '30', 'DPK', 'TOTNPL'];
+    // ═══ Sheet 1: Kredit AO ═══
+    // Kolom: Nama AO | NOA | OS | LANCAR | 01-30 | DPK | TOTNPL
+    const kreditHeaders = ['Nama AO', 'NOA', 'OS', 'LANCAR', '01-30', 'DPK', 'TOTNPL'];
     const kreditSample = [
-      ['Ahmad Fauzi', 45, 2500000000, 2200000000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 250000000, 200000000, 100000000],
-      ['Budi Santoso', 38, 1800000000, 1600000000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 180000000, 150000000, 50000000],
-      ['Citra Dewi', 52, 3200000000, 3000000000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 320000000, 180000000, 20000000],
+      ['Ahmad Fauzi', 45, 2500000000, 2200000000, 554104676, 200000000, 100000000],
+      ['Budi Santoso', 38, 1800000000, 1600000000, 622589936, 150000000, 50000000],
+      ['Citra Dewi', 52, 3200000000, 3000000000, 284844940, 180000000, 20000000],
     ];
     const kreditSheet = XLSX.utils.aoa_to_sheet([kreditHeaders, ...kreditSample]);
     kreditSheet['!cols'] = [
-      { wch: 18 }, // Nama AO
+      { wch: 20 }, // Nama AO
       { wch: 8 },  // NOA
       { wch: 18 }, // OS
       { wch: 18 }, // LANCAR
-      ...Array(30).fill({ wch: 14 }), // 01-30
+      { wch: 18 }, // 01-30
       { wch: 18 }, // DPK
       { wch: 18 }, // TOTNPL
     ];
@@ -33,7 +34,7 @@ export async function GET() {
     ];
     const mutasiSheet = XLSX.utils.aoa_to_sheet([mutasiHeaders, ...mutasiSample]);
     mutasiSheet['!cols'] = [
-      { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 18 },
+      { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 18 },
     ];
     XLSX.utils.book_append_sheet(workbook, mutasiSheet, 'Mutasi AO');
 
@@ -46,7 +47,7 @@ export async function GET() {
     ];
     const tabunganSheet = XLSX.utils.aoa_to_sheet([tabunganHeaders, ...tabunganSample]);
     tabunganSheet['!cols'] = [
-      { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 18 },
+      { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 18 },
     ];
     XLSX.utils.book_append_sheet(workbook, tabunganSheet, 'Tabungan FO');
 
@@ -59,11 +60,10 @@ export async function GET() {
     ];
     const depositoSheet = XLSX.utils.aoa_to_sheet([depositoHeaders, ...depositoSample]);
     depositoSheet['!cols'] = [
-      { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 18 },
+      { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 18 },
     ];
     XLSX.utils.book_append_sheet(workbook, depositoSheet, 'Deposito FO');
 
-    // Generate buffer
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
     return new NextResponse(buffer, {
