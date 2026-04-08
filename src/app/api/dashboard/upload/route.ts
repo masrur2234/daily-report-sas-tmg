@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import * as XLSX from 'xlsx';
 
+export const maxDuration = 60;
+
 function normalizeHeader(header: string): string {
   return header.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '');
 }
