@@ -8,67 +8,66 @@ datasource db {
 }
 
 model DashboardUpload {
-  id        String   @id @default(cuid())
-  fileName  String
+  id         String       @id
+  fileName   String
   uploadDate String
-  createdAt DateTime @default(now())
-
-  kreditAO     KreditAO[]
-  mutasiAO     MutasiAO[]
-  tabunganFO   TabunganFO[]
-  depositoFO   DepositoFO[]
-}
-
-model KreditAO {
-  id        String          @id @default(cuid())
-  uploadId  String
-  upload    DashboardUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
-  nama      String
-  noa       Float   @default(0)
-  os        Float   @default(0)
-  lancar    Float   @default(0)
-  dpk       Float   @default(0)
-  totNpl    Float   @default(0)
-  rr        Float   @default(0)
-  npl       Float   @default(0)
-  dailyData String  @default("{}")
-}
-
-model MutasiAO {
-  id         String          @id @default(cuid())
-  uploadId   String
-  upload     DashboardUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
-  nama       String
-  noaBefore  Float   @default(0)
-  osBefore   Float   @default(0)
-  noaNow     Float   @default(0)
-  osNow      Float   @default(0)
-  mutasiNoa  Float   @default(0)
-  mutasiOs   Float   @default(0)
-}
-
-model TabunganFO {
-  id        String          @id @default(cuid())
-  uploadId  String
-  upload    DashboardUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
-  nama      String
-  noaBefore Float   @default(0)
-  osBefore  Float   @default(0)
-  noaNow    Float   @default(0)
-  osNow     Float   @default(0)
-  mutasiNoa Float   @default(0)
-  mutasiOs  Float   @default(0)
+  createdAt  DateTime     @default(now())
+  DepositoFO DepositoFO[]
+  KreditAO   KreditAO[]
+  MutasiAO   MutasiAO[]
+  TabunganFO TabunganFO[]
 }
 
 model DepositoFO {
-  id        String          @id @default(cuid())
-  uploadId  String
-  upload    DashboardUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
-  nama      String
-  noaBefore Float   @default(0)
-  osBefore  Float   @default(0)
-  noaNow    Float   @default(0)
-  osNow     Float   @default(0)
-  mutasiNoa Float   @default(0)
-  mutasiOs  Float   @default(0)
+  id              String          @id
+  uploadId        String
+  nama            String
+  noaBefore       Float           @default(0)
+  osBefore        Float           @default(0)
+  noaNow          Float           @default(0)
+  osNow           Float           @default(0)
+  mutasiNoa       Float           @default(0)
+  mutasiOs        Float           @default(0)
+  DashboardUpload DashboardUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+}
+
+model KreditAO {
+  id              String          @id
+  uploadId        String
+  nama            String
+  noa             Float           @default(0)
+  os              Float           @default(0)
+  lancar          Float           @default(0)
+  dpk1to30        Float           @default(0)
+  dpk             Float           @default(0)
+  totNpl          Float           @default(0)
+  rr              Float           @default(0)
+  npl             Float           @default(0)
+  DashboardUpload DashboardUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+}
+
+model MutasiAO {
+  id              String          @id
+  uploadId        String
+  nama            String
+  noaBefore       Float           @default(0)
+  osBefore        Float           @default(0)
+  noaNow          Float           @default(0)
+  osNow           Float           @default(0)
+  mutasiNoa       Float           @default(0)
+  mutasiOs        Float           @default(0)
+  DashboardUpload DashboardUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+}
+
+model TabunganFO {
+  id              String          @id
+  uploadId        String
+  nama            String
+  noaBefore       Float           @default(0)
+  osBefore        Float           @default(0)
+  noaNow          Float           @default(0)
+  osNow           Float           @default(0)
+  mutasiNoa       Float           @default(0)
+  mutasiOs        Float           @default(0)
+  DashboardUpload DashboardUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 }
