@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useCallback, useRef, type DragEvent } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { Upload, FileSpreadsheet, AlertCircle, Loader2, Download, FileText, ArrowRightLeft, PiggyBank, CheckCircle2, X, Trash2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, AlertCircle, Loader2, Download, FileText, PiggyBank, CheckCircle2, X, Trash2 } from 'lucide-react'
 
 interface UploadDialogProps {
   open: boolean
@@ -42,7 +42,6 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
   const [singleFile, setSingleFile] = useState<File | null>(null)
   const [singleDragging, setSingleDragging] = useState(false)
   const singleInputRef = useRef<HTMLInputElement>(null)
-  const singleDragCounter = useRef(0)
   const singleDropRef = useRef<HTMLDivElement>(null)
 
   // Separate file mode
@@ -58,11 +57,6 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
     tabungan: null,
     deposito: null,
   })
-  const separateDragCounters = useRef<Record<TableType, number>>({
-    kredit: 0,
-    tabungan: 0,
-    deposito: 0,
-  })
 
   const resetState = () => {
     setSingleFile(null)
@@ -70,86 +64,151 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
     setError(null)
     setSuccess(null)
     setLoading(false)
+    setSingleDragging(false)
+    setDraggingType(null)
   }
 
-  const handleSingleDragEnter = useCallback((e: DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    singleDragCounter.current++
-    if (singleDragCounter.current === 1) setSingleDragging(true)
-  }, [])
+  // ========== GLOBAL DRAG & DROP ==========
+  // Use useEffect to attach document-level listeners so Portal dialogs don't block events
+  useEffect(() => {
+    if (!open) return
 
-  const handleSingleDragOver = useCallback((e: DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }, [])
+    let dragCounter = 0
 
-  const handleSingleDragLeave = useCallback((e: DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    singleDragCounter.current--
-    if (singleDragCounter.current <= 0) {
-      singleDragCounter.current = 0
+    const handleDocDragEnter = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragCounter++
+
+      // Determine which drop zone the mouse is over
+      const target = document.elementFromPoint(e.clientX, e.clientY)
+      if (target) {
+        // Check if over single drop zone
+        const singleEl = singleDropRef.current
+        if (singleEl && singleEl.contains(target)) {
+          setSingleDragging(true)
+          setDraggingType(null)
+          return
+        }
+        // Check if over a separate drop zone
+        for (const type of ['kredit', 'tabungan', 'deposito'] as TableType[]) {
+          const el = separateDropRefs.current[type]
+          if (el && el.contains(target)) {
+            setDraggingType(type)
+            setSingleDragging(false)
+            return
+          }
+        }
+      }
+    }
+
+    const handleDocDragOver = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      // Update visual feedback based on current position
+      const target = document.elementFromPoint(e.clientX, e.clientY)
+      if (target) {
+        const singleEl = singleDropRef.current
+        if (singleEl && singleEl.contains(target)) {
+          if (!singleDragging) setSingleDragging(true)
+          return
+        }
+        for (const type of ['kredit', 'tabungan', 'deposito'] as TableType[]) {
+          const el = separateDropRefs.current[type]
+          if (el && el.contains(target)) {
+            if (draggingType !== type) setDraggingType(type)
+            return
+          }
+        }
+      }
+      // Not over any drop zone
       setSingleDragging(false)
+      setDraggingType(null)
     }
-  }, [])
 
-  const handleSingleDrop = useCallback((e: DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    singleDragCounter.current = 0
-    setSingleDragging(false)
-    const file = e.dataTransfer.files[0]
-    if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
-      setSingleFile(file)
-      setError(null)
-    } else {
-      setError('Hanya file Excel (.xlsx/.xls) yang didukung')
+    const handleDocDragLeave = (e: DragEvent) => {
+      e.preventDefault()
+      dragCounter--
+      if (dragCounter <= 0) {
+        dragCounter = 0
+        setSingleDragging(false)
+        setDraggingType(null)
+      }
     }
-  }, [])
+
+    const handleDocDrop = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragCounter = 0
+      setSingleDragging(false)
+      const prevDraggingType = draggingType
+      setDraggingType(null)
+
+      const file = e.dataTransfer?.files?.[0]
+      if (!file) return
+
+      if (!(file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
+        setError('Hanya file Excel (.xlsx/.xls) yang didukung')
+        return
+      }
+
+      // Determine which zone received the drop
+      const target = document.elementFromPoint(e.clientX, e.clientY)
+
+      if (mode === 'single') {
+        const singleEl = singleDropRef.current
+        if (target && singleEl && singleEl.contains(target)) {
+          setSingleFile(file)
+          setError(null)
+          return
+        }
+      }
+
+      // Check separate zones
+      for (const type of ['kredit', 'tabungan', 'deposito'] as TableType[]) {
+        const el = separateDropRefs.current[type]
+        if (target && el && el.contains(target)) {
+          setSeparateFiles(prev => {
+            const filtered = prev.filter(f => f.type !== type)
+            return [...filtered, { type, file, name: file.name, size: file.size }]
+          })
+          setError(null)
+          return
+        }
+      }
+
+      // If dropped outside specific zones, apply to current mode
+      if (mode === 'single') {
+        setSingleFile(file)
+        setError(null)
+      } else if (prevDraggingType) {
+        setSeparateFiles(prev => {
+          const filtered = prev.filter(f => f.type !== prevDraggingType)
+          return [...filtered, { type: prevDraggingType, file, name: file.name, size: file.size }]
+        })
+        setError(null)
+      } else {
+        setError('Drag file ke area upload yang sesuai')
+      }
+    }
+
+    document.addEventListener('dragenter', handleDocDragEnter, true)
+    document.addEventListener('dragover', handleDocDragOver, true)
+    document.addEventListener('dragleave', handleDocDragLeave, true)
+    document.addEventListener('drop', handleDocDrop, true)
+
+    return () => {
+      document.removeEventListener('dragenter', handleDocDragEnter, true)
+      document.removeEventListener('dragover', handleDocDragOver, true)
+      document.removeEventListener('dragleave', handleDocDragLeave, true)
+      document.removeEventListener('drop', handleDocDrop, true)
+    }
+  }, [open, mode, singleDragging, draggingType])
 
   const handleSingleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) { setSingleFile(file); setError(null) }
-  }, [])
-
-  const handleSeparateDragEnter = useCallback((e: DragEvent, type: TableType) => {
-    e.preventDefault()
-    e.stopPropagation()
-    separateDragCounters.current[type]++
-    if (separateDragCounters.current[type] === 1) setDraggingType(type)
-  }, [])
-
-  const handleSeparateDragOver = useCallback((e: DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }, [])
-
-  const handleSeparateDragLeave = useCallback((e: DragEvent, type: TableType) => {
-    e.preventDefault()
-    e.stopPropagation()
-    separateDragCounters.current[type]--
-    if (separateDragCounters.current[type] <= 0) {
-      separateDragCounters.current[type] = 0
-      setDraggingType(null)
-    }
-  }, [])
-
-  const handleSeparateDrop = useCallback((e: DragEvent, type: TableType) => {
-    e.preventDefault()
-    e.stopPropagation()
-    separateDragCounters.current[type] = 0
-    setDraggingType(null)
-    const file = e.dataTransfer.files[0]
-    if (file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls'))) {
-      setSeparateFiles(prev => {
-        const filtered = prev.filter(f => f.type !== type)
-        return [...filtered, { type, file, name: file.name, size: file.size }]
-      })
-      setError(null)
-    } else {
-      setError('Hanya file Excel (.xlsx/.xls) yang didukung')
-    }
   }, [])
 
   const handleSeparateFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>, type: TableType) => {
@@ -183,7 +242,6 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
       const dateStr = uploadDate.toISOString().split('T')[0]
 
       if (mode === 'single') {
-        // Upload single multi-sheet file
         if (!singleFile) {
           setError('Pilih file Excel terlebih dahulu')
           setLoading(false)
@@ -213,14 +271,12 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
         onUploadSuccess(dateStr)
 
       } else {
-        // Upload separate files one by one
         if (separateFiles.length === 0) {
           setError('Upload minimal 1 file')
           setLoading(false)
           return
         }
 
-        let totalParsed = 0
         const results: string[] = []
 
         for (const uf of separateFiles) {
@@ -238,7 +294,6 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
           }
 
           const statCount = data.stats?.kredit || data.stats?.tabungan || data.stats?.deposito || 0
-          totalParsed += statCount
           results.push(`${TABLE_INFO[uf.type].label} (${statCount} baris)`)
         }
 
@@ -246,7 +301,6 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
         onUploadSuccess(dateStr)
       }
 
-      // Auto close after short delay
       setTimeout(() => {
         resetState()
         onOpenChange(false)
@@ -280,10 +334,7 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetState(); onOpenChange(v) }}>
-      <DialogContent
-        className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto"
-        onDragOver={(e) => e.preventDefault()}
-      >
+      <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
@@ -347,10 +398,6 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
                     ? 'border-green-500 bg-green-50'
                     : 'border-muted-foreground/25 hover:border-blue-400 hover:bg-muted/30'
                 }`}
-                onDragEnter={handleSingleDragEnter}
-                onDragOver={handleSingleDragOver}
-                onDragLeave={handleSingleDragLeave}
-                onDrop={handleSingleDrop}
                 onClick={() => singleInputRef.current?.click()}
               >
                 <input
@@ -424,10 +471,6 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
                         className={`border border-dashed rounded-md p-4 text-center cursor-pointer transition-all duration-200 ${
                           draggingType === type ? 'border-blue-400 bg-blue-50 scale-[1.02] shadow-md shadow-blue-100' : 'border-muted-foreground/20 hover:border-blue-300 hover:bg-muted/20'
                         }`}
-                        onDragEnter={(e) => handleSeparateDragEnter(e, type)}
-                        onDragOver={handleSeparateDragOver}
-                        onDragLeave={(e) => handleSeparateDragLeave(e, type)}
-                        onDrop={(e) => handleSeparateDrop(e, type)}
                         onClick={() => separateInputRefs.current[type]?.click()}
                       >
                         <input
