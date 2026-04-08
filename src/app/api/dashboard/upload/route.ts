@@ -3,6 +3,10 @@ import * as XLSX from 'xlsx';
 
 export const maxDuration = 60;
 
+// ═══════════════════════════════════════════════════════════════
+// UTILITY FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
 function normalizeHeader(header: string): string {
   return header.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '');
 }
@@ -16,9 +20,9 @@ function findColumn(headers: string[], ...candidates: string[]): number {
   return -1;
 }
 
-function hitungRR(lancar: number, os: number): number {
+function hitungRR(lancar: number, dpk1to30: number, os: number): number {
   if (!os || os === 0) return 0;
-  return (lancar / os) * 100;
+  return ((lancar + dpk1to30) / os) * 100;
 }
 
 function hitungNPL(totNpl: number, os: number): number {
@@ -32,121 +36,268 @@ function parseNumber(val: unknown): number {
   return isNaN(num) ? 0 : num;
 }
 
-function extractDailyData(headers: string[], vals: unknown[]): Record<string, number> {
-  const dailyData: Record<string, number> = {};
-  for (let day = 1; day <= 31; day++) {
-    const dayStr1 = String(day);
-    const dayStr2 = String(day).padStart(2, '0');
-    const patterns = [
-      dayStr1, dayStr2,
-      `tgl${dayStr1}`, `tgl${dayStr2}`,
-      `tgl ${dayStr1}`, `tgl ${dayStr2}`,
-      `hari${dayStr1}`, `hari${dayStr2}`,
-      `hari ${dayStr1}`, `hari ${dayStr2}`,
-      `tanggal${dayStr1}`, `tanggal${dayStr2}`,
-      `tanggal ${dayStr1}`, `tanggal ${dayStr2}`,
-    ];
-    for (const pattern of patterns) {
-      const idx = headers.findIndex(h => normalizeHeader(h) === normalizeHeader(pattern));
-      if (idx !== -1) {
-        const val = parseNumber(vals[idx]);
-        if (val !== 0) dailyData[dayStr2] = val;
-        break;
+// ═══════════════════════════════════════════════════════════════
+// RAW SHEET READER — Uses array-of-arrays for maximum reliability
+// Handles: multi-row headers, merged cells, numeric headers (01-30)
+// ═══════════════════════════════════════════════════════════════
+
+interface SheetParseResult {
+  headers: string[];       // Cleaned header strings from the found header row
+  headerRowIdx: number;    // Which row in the raw data is the header
+  rows: unknown[][];       // Data rows (after header row), already trimmed
+  dayColMap: Map<number, string>; // colIndex -> "01", "02", ... for daily columns
+}
+
+/**
+ * Parse a sheet into headers + rows using raw array-of-arrays.
+ * Automatically finds the header row by looking for known keywords.
+ */
+function parseSheetRaw(sheet: XLSX.WorkSheet, knownKeywords: string[]): SheetParseResult {
+  const rawAll: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    blankrows: false,
+    defval: '',
+  });
+
+  if (rawAll.length === 0) {
+    return { headers: [], headerRowIdx: 0, rows: [], dayColMap: new Map() };
+  }
+
+  // Step 1: Find the header row (contains at least one known keyword)
+  let headerRowIdx = 0;
+  for (let r = 0; r < Math.min(rawAll.length, 10); r++) {
+    const rowStr = rawAll[r].map(v => String(v ?? '').toLowerCase().trim());
+    const found = rowStr.some(cell => knownKeywords.some(kw => cell.includes(kw.toLowerCase())));
+    if (found) {
+      headerRowIdx = r;
+      break;
+    }
+  }
+
+  const headerRow = rawAll[headerRowIdx] || [];
+  const headers = headerRow.map(h => String(h ?? '').trim());
+
+  // Step 2: Identify day columns (headers that are just numbers 1-31)
+  const dayColMap = new Map<number, string>();
+  for (let c = 0; c < headers.length; c++) {
+    const h = headers[c];
+    if (!h) continue;
+    const match = h.match(/^(\d{1,2})$/);
+    if (match) {
+      const dayNum = parseInt(match[1], 10);
+      if (dayNum >= 1 && dayNum <= 31) {
+        dayColMap.set(c, String(dayNum).padStart(2, '0'));
       }
+    }
+  }
+
+  // Step 3: Collect data rows (everything after header, skip if first col is empty)
+  const rows: unknown[][] = [];
+  for (let r = headerRowIdx + 1; r < rawAll.length; r++) {
+    const row = rawAll[r];
+    if (!row || row.length === 0) continue;
+    // Skip rows where ALL cells are empty
+    const allEmpty = row.every(v => v === '' || v === null || v === undefined);
+    if (allEmpty) continue;
+    rows.push(row);
+  }
+
+  return { headers, headerRowIdx, rows, dayColMap };
+}
+
+/**
+ * Extract daily data (01-30) from a raw data row using dayColMap.
+ */
+function extractDailyFromRow(row: unknown[], dayColMap: Map<number, string>): Record<string, number> {
+  const dailyData: Record<string, number> = {};
+  for (const [colIdx, dayKey] of dayColMap) {
+    if (colIdx < row.length) {
+      const val = parseNumber(row[colIdx]);
+      if (val !== 0) dailyData[dayKey] = val;
     }
   }
   return dailyData;
 }
 
-function parseKreditFromSheet(sheet: XLSX.WorkSheet): { nama: string; noa: number; os: number; lancar: number; dpk: number; totNpl: number; rr: number; npl: number; dailyData: Record<string, number> }[] {
-  const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-  if (!jsonData.length) return [];
-  const headers = Object.keys(jsonData[0]);
-  const colNama = findColumn(headers, 'Nama AO', 'Nama', 'nama', 'AO', 'ao', 'nama ao');
-  const colNoa = findColumn(headers, 'NOA', 'noa', 'Noa', 'Nomer Rekening');
-  const colOs = findColumn(headers, 'OS', 'os', 'Total Baki Debet', 'Baki Debet', 'baki debet', 'total baki debet');
-  const colLancar = findColumn(headers, 'LANCAR', 'lancar', 'Lancar');
-  const colDpk = findColumn(headers, 'DPK', 'dpk', 'Dpk');
-  const colTotNpl = findColumn(headers, 'TOTNPL', 'totnpl', 'Total NPL', 'total npl', 'Tot NPL', 'tot npl', 'NPL Total', 'npl total');
+/**
+ * Safely get a value from a row by header name.
+ * Tries both exact text match and normalized match.
+ */
+function getColVal(row: unknown[], headers: string[], ...headerNames: string[]): number {
+  for (const headerName of headerNames) {
+    // Try direct text match (case-insensitive, trimmed)
+    const idx1 = headers.findIndex(h => h.toLowerCase().trim() === headerName.toLowerCase().trim());
+    if (idx1 >= 0 && idx1 < row.length) {
+      return parseNumber(row[idx1]);
+    }
+    // Try normalized match
+    const idx2 = findColumn(headers, headerName);
+    if (idx2 >= 0 && idx2 < row.length) {
+      return parseNumber(row[idx2]);
+    }
+  }
+  return 0;
+}
 
-  return jsonData.map(row => {
-    const vals = Object.values(row);
-    const nama = colNama >= 0 ? String(vals[colNama] || '').trim() : '';
+function getColStr(row: unknown[], headers: string[], headerName: string): string {
+  const idx = findColumn(headers, headerName);
+  if (idx < 0 || idx >= row.length) return '';
+  return String(row[idx] ?? '').trim();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PARSERS
+// ═══════════════════════════════════════════════════════════════
+
+function parseKreditFromSheet(sheet: XLSX.WorkSheet): { nama: string; noa: number; os: number; lancar: number; dpk1to30: number; dpk: number; totNpl: number; rr: number; npl: number; dailyData: Record<string, number> }[] {
+  const parsed = parseSheetRaw(sheet, ['Nama AO', 'Nama', 'NOA', 'OS', 'LANCAR']);
+  if (parsed.headers.length === 0) return [];
+
+  const { headers, rows, dayColMap } = parsed;
+
+  return rows.map(row => {
+    const nama = getColStr(row, headers, 'Nama AO') || getColStr(row, headers, 'Nama') || getColStr(row, headers, 'AO');
     if (!nama) return null;
-    const noa = parseNumber(colNoa >= 0 ? vals[colNoa] : 0);
-    const os = parseNumber(colOs >= 0 ? vals[colOs] : 0);
-    const lancar = parseNumber(colLancar >= 0 ? vals[colLancar] : 0);
-    const dpk = parseNumber(colDpk >= 0 ? vals[colDpk] : 0);
-    let totNpl = parseNumber(colTotNpl >= 0 ? vals[colTotNpl] : 0);
-    if (!totNpl) { totNpl = os - lancar; if (totNpl < 0) totNpl = 0; }
-    const rr = hitungRR(lancar, os);
+
+    const noa = getColVal(row, headers, 'NOA');
+    const os = getColVal(row, headers, 'OS') || getColVal(row, headers, 'Total Baki Debet') || getColVal(row, headers, 'Baki Debet');
+    const lancar = getColVal(row, headers, 'LANCAR');
+    const dpk1to30 = getColVal(row, headers, '01-30', '1-30');
+    const dpk = getColVal(row, headers, 'DPK');
+    let totNpl = getColVal(row, headers, 'TOTNPL') || getColVal(row, headers, 'Total NPL') || getColVal(row, headers, 'Tot NPL');
+
+    // NPL fallback: if not provided, calculate as os - lancar - dpk1to30 - dpk
+    if (!totNpl) {
+      totNpl = os - lancar - dpk1to30 - dpk;
+      if (totNpl < 0) totNpl = 0;
+    }
+
+    const rr = hitungRR(lancar, dpk1to30, os);
     const npl = hitungNPL(totNpl, os);
-    const dailyData = extractDailyData(headers, vals);
-    return { nama, noa, os, lancar, dpk, totNpl, rr, npl, dailyData };
+    const dailyData = extractDailyFromRow(row, dayColMap);
+
+    return { nama, noa, os, lancar, dpk1to30, dpk, totNpl, rr, npl, dailyData };
   }).filter(Boolean) as any[];
 }
 
 function parseMutasiFromSheet(sheet: XLSX.WorkSheet): { nama: string; noaBefore: number; osBefore: number; noaNow: number; osNow: number; mutasiNoa: number; mutasiOs: number }[] {
-  const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-  if (!jsonData.length) return [];
-  const headers = Object.keys(jsonData[0]);
-  const colNama = findColumn(headers, 'Nama AO', 'Nama', 'nama', 'AO', 'ao', 'nama ao');
-  const colNoaBefore = findColumn(headers, 'NOA Bulan Lalu', 'NOA (Bulan Lalu)', 'noa bulan lalu', 'NOA Bl', 'NOA BL', 'Noa Bulan Lalu');
-  const colOsBefore = findColumn(headers, 'OS Bulan Lalu', 'OS (Bulan Lalu)', 'os bulan lalu', 'OS Bl', 'OS BL', 'Os Bulan Lalu');
-  const colNoaNow = findColumn(headers, 'NOA Sekarang', 'NOA (Sekarang)', 'NOA Bulan Ini', 'noa sekarang', 'NOA Now', 'Noa Sekarang');
-  const colOsNow = findColumn(headers, 'OS Sekarang', 'OS (Sekarang)', 'OS Bulan Ini', 'os sekarang', 'OS Now', 'Os Sekarang');
-  const colMutasiNoa = findColumn(headers, 'Mutasi NOA', 'mutasi noa', 'MutasiNoa');
-  const colMutasiOs = findColumn(headers, 'Mutasi OS', 'mutasi os', 'MutasiOs');
+  const parsed = parseSheetRaw(sheet, ['Nama AO', 'Nama', 'NOA Bulan Lalu', 'OS Bulan Lalu', 'NOA Sekarang']);
+  if (parsed.headers.length === 0) return [];
 
-  return jsonData.map(row => {
-    const vals = Object.values(row);
-    const nama = colNama >= 0 ? String(vals[colNama] || '').trim() : '';
+  const { headers, rows } = parsed;
+
+  return rows.map(row => {
+    const nama = getColStr(row, headers, 'Nama AO') || getColStr(row, headers, 'Nama') || getColStr(row, headers, 'AO');
     if (!nama) return null;
-    const noaBefore = parseNumber(colNoaBefore >= 0 ? vals[colNoaBefore] : 0);
-    const osBefore = parseNumber(colOsBefore >= 0 ? vals[colOsBefore] : 0);
-    const noaNow = parseNumber(colNoaNow >= 0 ? vals[colNoaNow] : 0);
-    const osNow = parseNumber(colOsNow >= 0 ? vals[colOsNow] : 0);
-    const mutasiNoa = parseNumber(colMutasiNoa >= 0 ? vals[colMutasiNoa] : (noaNow - noaBefore));
-    const mutasiOs = parseNumber(colMutasiOs >= 0 ? vals[colMutasiOs] : (osNow - osBefore));
+
+    const noaBefore = getColVal(row, headers, 'NOA Bulan Lalu');
+    const osBefore = getColVal(row, headers, 'OS Bulan Lalu');
+    const noaNow = getColVal(row, headers, 'NOA Sekarang') || getColVal(row, headers, 'NOA Bulan Ini');
+    const osNow = getColVal(row, headers, 'OS Sekarang') || getColVal(row, headers, 'OS Bulan Ini');
+    const mutasiNoa = getColVal(row, headers, 'Mutasi NOA') || (noaNow - noaBefore);
+    const mutasiOs = getColVal(row, headers, 'Mutasi OS') || (osNow - osBefore);
+
     return { nama, noaBefore, osBefore, noaNow, osNow, mutasiNoa, mutasiOs };
   }).filter(Boolean) as any[];
 }
 
 function parseFundingFromSheet(sheet: XLSX.WorkSheet): { nama: string; noaBefore: number; osBefore: number; noaNow: number; osNow: number; mutasiNoa: number; mutasiOs: number }[] {
-  const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-  if (!jsonData.length) return [];
-  const headers = Object.keys(jsonData[0]);
-  const colNama = findColumn(headers, 'Nama FO', 'Nama', 'nama', 'FO', 'fo', 'nama fo', 'Nama AO', 'AO', 'ao', 'nama ao');
-  const colNoaBefore = findColumn(headers, 'NOA Bulan Lalu', 'NOA (Bulan Lalu)', 'noa bulan lalu', 'NOA Bl', 'NOA BL', 'Noa Bulan Lalu');
-  const colOsBefore = findColumn(headers, 'OS Bulan Lalu', 'OS (Bulan Lalu)', 'os bulan lalu', 'OS Bl', 'OS BL', 'Os Bulan Lalu');
-  const colNoaNow = findColumn(headers, 'NOA Sekarang', 'NOA (Sekarang)', 'NOA Bulan Ini', 'noa sekarang', 'NOA Now', 'Noa Sekarang');
-  const colOsNow = findColumn(headers, 'OS Sekarang', 'OS (Sekarang)', 'OS Bulan Ini', 'os sekarang', 'OS Now', 'Os Sekarang');
-  const colMutasiNoa = findColumn(headers, 'Mutasi NOA', 'mutasi noa', 'MutasiNoa');
-  const colMutasiOs = findColumn(headers, 'Mutasi OS', 'mutasi os', 'MutasiOs');
-  const colNoa = findColumn(headers, 'NOA', 'noa');
-  const colOs = findColumn(headers, 'OS', 'os');
-  const colMutasi = findColumn(headers, 'Mutasi', 'mutasi');
-  const hasTwoPeriods = colNoaBefore >= 0 || colOsBefore >= 0 || colNoaNow >= 0 || colOsNow >= 0;
+  const parsed = parseSheetRaw(sheet, ['Nama FO', 'Nama', 'NOA Bulan Lalu', 'OS Bulan Lalu', 'NOA', 'OS']);
+  if (parsed.headers.length === 0) return [];
 
-  return jsonData.map(row => {
-    const vals = Object.values(row);
-    const nama = colNama >= 0 ? String(vals[colNama] || '').trim() : '';
+  const { headers, rows } = parsed;
+
+  // Check if data looks transposed: if "Nama" column doesn't exist but
+  // there are many columns with names (potential AO names as columns)
+  const colNama = findColumn(headers, 'Nama FO', 'Nama', 'nama', 'FO', 'fo', 'nama fo');
+  const hasMultiPeriod = findColumn(headers, 'NOA Bulan Lalu', 'OS Bulan Lalu', 'NOA Sekarang', 'OS Sekarang') >= 0;
+  const hasSinglePeriod = findColumn(headers, 'NOA', 'noa') >= 0;
+
+  // If no "Nama" column found, data might be transposed — try transposing
+  if (colNama < 0 && parsed.rows.length > 0) {
+    return parseFundingTransposed(headers, rows);
+  }
+
+  // Standard row-based parsing
+  return rows.map(row => {
+    const nama = getColStr(row, headers, 'Nama FO') || getColStr(row, headers, 'Nama') || getColStr(row, headers, 'FO') || getColStr(row, headers, 'AO');
     if (!nama) return null;
-    if (hasTwoPeriods) {
-      const noaBefore = parseNumber(colNoaBefore >= 0 ? vals[colNoaBefore] : 0);
-      const osBefore = parseNumber(colOsBefore >= 0 ? vals[colOsBefore] : 0);
-      const noaNow = parseNumber(colNoaNow >= 0 ? vals[colNoaNow] : 0);
-      const osNow = parseNumber(colOsNow >= 0 ? vals[colOsNow] : 0);
-      const mutasiNoa = parseNumber(colMutasiNoa >= 0 ? vals[colMutasiNoa] : (noaNow - noaBefore));
-      const mutasiOs = parseNumber(colMutasiOs >= 0 ? vals[colMutasiOs] : (osNow - osBefore));
+
+    if (hasMultiPeriod) {
+      const noaBefore = getColVal(row, headers, 'NOA Bulan Lalu');
+      const osBefore = getColVal(row, headers, 'OS Bulan Lalu');
+      const noaNow = getColVal(row, headers, 'NOA Sekarang') || getColVal(row, headers, 'NOA Bulan Ini');
+      const osNow = getColVal(row, headers, 'OS Sekarang') || getColVal(row, headers, 'OS Bulan Ini');
+      const mutasiNoa = getColVal(row, headers, 'Mutasi NOA') || (noaNow - noaBefore);
+      const mutasiOs = getColVal(row, headers, 'Mutasi OS') || (osNow - osBefore);
       return { nama, noaBefore, osBefore, noaNow, osNow, mutasiNoa, mutasiOs };
-    } else {
-      const noaNow = parseNumber(colNoa >= 0 ? vals[colNoa] : 0);
-      const osNow = parseNumber(colOs >= 0 ? vals[colOs] : 0);
-      const mutasi = parseNumber(colMutasi >= 0 ? vals[colMutasi] : 0);
+    } else if (hasSinglePeriod) {
+      const noaNow = getColVal(row, headers, 'NOA');
+      const osNow = getColVal(row, headers, 'OS');
+      const mutasi = getColVal(row, headers, 'Mutasi');
       return { nama, noaBefore: 0, osBefore: osNow - mutasi, noaNow, osNow, mutasiNoa: 0, mutasiOs: mutasi };
     }
+    return null;
   }).filter(Boolean) as any[];
+}
+
+/**
+ * Parse transposed funding data where AO names are COLUMNS and
+ * metrics (NOA, OS, etc.) are ROWS.
+ * Example structure:
+ * Row 0: [empty, "Dian Permata", "Eka Wulandari", ...]
+ * Row 1: ["NOA Bulan Lalu", 30, 22, ...]
+ * Row 2: ["OS Bulan Lalu", 2500000000, 1800000000, ...]
+ * Row 3: ["NOA Sekarang", 32, 25, ...]
+ * Row 4: ["OS Sekarang", 2700000000, 1950000000, ...]
+ */
+function parseFundingTransposed(headers: string[], rows: unknown[][]): { nama: string; noaBefore: number; osBefore: number; noaNow: number; osNow: number; mutasiNoa: number; mutasiOs: number }[] {
+  // First column of each row is the metric name, rest are values per FO
+  const metrics: Map<string, number[]> = new Map();
+
+  for (const row of rows) {
+    const metricName = normalizeHeader(String(row[0] ?? ''));
+    const values: number[] = [];
+    for (let c = 1; c < row.length; c++) {
+      values.push(parseNumber(row[c]));
+    }
+    metrics.set(metricName, values);
+  }
+
+  // FO names are in the headers (first row) starting from column 1
+  const foNames: string[] = [];
+  for (let c = 1; c < headers.length; c++) {
+    const name = String(headers[c] ?? '').trim();
+    if (name) foNames.push(name);
+  }
+
+  if (foNames.length === 0) return [];
+
+  // Determine which metrics we have
+  const hasMultiPeriod = metrics.has('noabulanlalu') || metrics.has('osbulanlalu') || metrics.has('noasekarang') || metrics.has('ossekarang');
+
+  const result: any[] = [];
+
+  for (let i = 0; i < foNames.length; i++) {
+    const nama = foNames[i];
+
+    if (hasMultiPeriod) {
+      const noaBefore = metrics.get('noabulanlalu')?.[i] ?? 0;
+      const osBefore = metrics.get('osbulanlalu')?.[i] ?? 0;
+      const noaNow = metrics.get('noasekarang')?.[i] ?? metrics.get('noabulanini')?.[i] ?? 0;
+      const osNow = metrics.get('ossekarang')?.[i] ?? metrics.get('osbulanini')?.[i] ?? 0;
+      const mutasiNoa = metrics.get('mutasinoa')?.[i] ?? (noaNow - noaBefore);
+      const mutasiOs = metrics.get('mutasios')?.[i] ?? (osNow - osBefore);
+      result.push({ nama, noaBefore, osBefore, noaNow, osNow, mutasiNoa, mutasiOs });
+    } else {
+      const noaNow = metrics.get('noa')?.[i] ?? 0;
+      const osNow = metrics.get('os')?.[i] ?? 0;
+      const mutasi = metrics.get('mutasi')?.[i] ?? 0;
+      result.push({ nama, noaBefore: 0, osBefore: osNow - mutasi, noaNow, osNow, mutasiNoa: 0, mutasiOs: mutasi });
+    }
+  }
+
+  return result;
 }
 
 function findSheet(workbook: XLSX.WorkBook, keywords: string[]): XLSX.WorkSheet | null {
@@ -157,8 +308,11 @@ function findSheet(workbook: XLSX.WorkBook, keywords: string[]): XLSX.WorkSheet 
   return workbook.Sheets[0] || null;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// API ROUTE
+// ═══════════════════════════════════════════════════════════════
+
 export async function POST(request: NextRequest) {
-  // ═════════════ DIAGNOSTIC: cek environment ═══════════
   let db: any;
   try {
     const { getDb } = await import('@/lib/db');
@@ -168,16 +322,7 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    // ═══ KEMBALIKAN DIAGNOSTIC INFO ═══
-    return NextResponse.json({
-      error: `Database init error: ${msg}`,
-      diagnostic: {
-        cwd: process.cwd(),
-        envDATABASE_URL: process.env.DATABASE_URL || 'NOT SET',
-        nodeEnv: process.env.NODE_ENV || 'NOT SET',
-        platform: process.platform,
-      }
-    }, { status: 500 });
+    return NextResponse.json({ error: `Database init error: ${msg}` }, { status: 500 });
   }
 
   try {
@@ -283,13 +428,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Upload error:', error);
     const msg = error instanceof Error ? error.message : String(error);
-    // ═══ KEMBALIKAN DIAGNOSTIC INFO ═══
-    return NextResponse.json({
-      error: `Upload gagal: ${msg}`,
-      diagnostic: {
-        cwd: process.cwd(),
-        envDATABASE_URL: process.env.DATABASE_URL || 'NOT SET',
-      }
-    }, { status: 500 });
+    return NextResponse.json({ error: `Upload gagal: ${msg}` }, { status: 500 });
   }
 }
