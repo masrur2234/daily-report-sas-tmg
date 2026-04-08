@@ -2,21 +2,30 @@ import { PrismaClient } from '@prisma/client'
 import path from 'path'
 import fs from 'fs'
 
-const DB_PATH = path.join(process.cwd(), 'prisma', 'dev.db')
+const DB_DIR = path.join(process.cwd(), 'prisma')
+const DB_PATH = path.join(DB_DIR, 'dev.db')
 
-// Pastikan file database ada
+if (!fs.existsSync(DB_DIR)) {
+  try { fs.mkdirSync(DB_DIR, { recursive: true }) } catch {}
+}
+
 if (!fs.existsSync(DB_PATH)) {
-  fs.writeFileSync(DB_PATH, '')
+  try { fs.writeFileSync(DB_PATH, '') } catch {}
 }
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
+let _db: PrismaClient | null = null
+
+try {
+  _db = globalForPrisma.prisma ?? new PrismaClient({
     datasourceUrl: `file:${DB_PATH}`
   })
+  if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = _db
+} catch (err) {
+  console.error('Failed to initialize PrismaClient:', err)
+}
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+export const db = _db!
