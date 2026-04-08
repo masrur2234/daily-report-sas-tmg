@@ -297,18 +297,21 @@ export async function POST(request: NextRequest) {
     // =============================================
     // MODE: Full Upload (single multi-sheet file)
     // =============================================
-    const kreditData = parseKreditFromSheet(
-      findSheet(workbook, ['kredit', 'ao', 'credit'])!
-    );
-    const mutasiData = parseMutasiFromSheet(
-      findSheet(workbook, ['mutasi'])!
-    );
-    const tabunganData = parseFundingFromSheet(
-      findSheet(workbook, ['tabungan', 'saving'])!
-    );
-    const depositoData = parseFundingFromSheet(
-      findSheet(workbook, ['deposito', 'deposit', 'time deposit'])!
-    );
+    const kreditSheet = findSheet(workbook, ['kredit', 'ao', 'credit']);
+    const mutasiSheet = findSheet(workbook, ['mutasi']);
+    const tabunganSheet = findSheet(workbook, ['tabungan', 'saving']);
+    const depositoSheet = findSheet(workbook, ['deposito', 'deposit', 'time deposit']);
+
+    if (!kreditSheet && !mutasiSheet && !tabunganSheet && !depositoSheet) {
+      return NextResponse.json({
+        error: `Sheet tidak ditemukan. Sheet yang ada: ${workbook.SheetNames.join(', ')}. Harus ada sheet: Kredit, Mutasi, Tabungan, Deposito.`
+      }, { status: 400 });
+    }
+
+    const kreditData = kreditSheet ? parseKreditFromSheet(kreditSheet) : [];
+    const mutasiData = mutasiSheet ? parseMutasiFromSheet(mutasiSheet) : [];
+    const tabunganData = tabunganSheet ? parseFundingFromSheet(tabunganSheet) : [];
+    const depositoData = depositoSheet ? parseFundingFromSheet(depositoSheet) : [];
 
     if (kreditData.length === 0 && mutasiData.length === 0 && tabunganData.length === 0 && depositoData.length === 0) {
       return NextResponse.json({ error: 'Tidak ada data yang dapat diparsing dari file Excel. Pastikan file memiliki sheet yang benar.' }, { status: 400 });
@@ -373,8 +376,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Upload error:', error);
+    const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json({
-      error: error instanceof Error ? error.message : 'Terjadi kesalahan saat upload'
+      error: `Upload gagal: ${msg}`
     }, { status: 500 });
   }
 }
