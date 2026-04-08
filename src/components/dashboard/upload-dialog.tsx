@@ -3,11 +3,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Calendar } from '@/components/ui/calendar'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { Upload, FileSpreadsheet, AlertCircle, Loader2, Download, FileText, PiggyBank, CheckCircle2, X, Trash2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, AlertCircle, Loader2, Download, FileText, PiggyBank, CheckCircle2, X, Trash2, CalendarDays } from 'lucide-react'
 
 interface UploadDialogProps {
   open: boolean
@@ -32,7 +32,10 @@ const TABLE_INFO: Record<TableType, { label: string; color: string; icon: typeof
 }
 
 export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: UploadDialogProps) {
-  const [uploadDate, setUploadDate] = useState<Date | undefined>(new Date())
+  const [uploadDate, setUploadDate] = useState(() => {
+    const now = new Date()
+    return now.toISOString().split('T')[0]
+  })
   const [mode, setMode] = useState<UploadMode>('single')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -59,7 +62,6 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
   })
 
   const resetState = () => {
-    setSingleFile(null)
     setSeparateFiles([])
     setError(null)
     setSuccess(null)
@@ -68,66 +70,55 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
     setDraggingType(null)
   }
 
-  // ========== GLOBAL DRAG & DROP ==========
-  // Use useEffect to attach document-level listeners so Portal dialogs don't block events
+  // ========== GLOBAL DRAG & DROP (document-level untuk Portal compatibility) ==========
   useEffect(() => {
     if (!open) return
 
     let dragCounter = 0
 
-    const handleDocDragEnter = (e: DragEvent) => {
+    const getDropTarget = (e: DragEvent): { zone: 'single' | TableType | null } => {
+      const target = document.elementFromPoint(e.clientX, e.clientY)
+      if (!target) return { zone: null }
+
+      if (singleDropRef.current && singleDropRef.current.contains(target)) {
+        return { zone: 'single' }
+      }
+      for (const type of ['kredit', 'tabungan', 'deposito'] as TableType[]) {
+        const el = separateDropRefs.current[type]
+        if (el && el.contains(target)) return { zone: type }
+      }
+      return { zone: null }
+    }
+
+    const handleDragEnter = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
       dragCounter++
-
-      // Determine which drop zone the mouse is over
-      const target = document.elementFromPoint(e.clientX, e.clientY)
-      if (target) {
-        // Check if over single drop zone
-        const singleEl = singleDropRef.current
-        if (singleEl && singleEl.contains(target)) {
-          setSingleDragging(true)
-          setDraggingType(null)
-          return
-        }
-        // Check if over a separate drop zone
-        for (const type of ['kredit', 'tabungan', 'deposito'] as TableType[]) {
-          const el = separateDropRefs.current[type]
-          if (el && el.contains(target)) {
-            setDraggingType(type)
-            setSingleDragging(false)
-            return
-          }
-        }
+      const { zone } = getDropTarget(e)
+      if (zone === 'single') {
+        setSingleDragging(true)
+        setDraggingType(null)
+      } else if (zone) {
+        setDraggingType(zone)
+        setSingleDragging(false)
       }
     }
 
-    const handleDocDragOver = (e: DragEvent) => {
+    const handleDragOver = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
-
-      // Update visual feedback based on current position
-      const target = document.elementFromPoint(e.clientX, e.clientY)
-      if (target) {
-        const singleEl = singleDropRef.current
-        if (singleEl && singleEl.contains(target)) {
-          if (!singleDragging) setSingleDragging(true)
-          return
-        }
-        for (const type of ['kredit', 'tabungan', 'deposito'] as TableType[]) {
-          const el = separateDropRefs.current[type]
-          if (el && el.contains(target)) {
-            if (draggingType !== type) setDraggingType(type)
-            return
-          }
-        }
+      const { zone } = getDropTarget(e)
+      if (zone === 'single') {
+        if (!singleDragging) { setSingleDragging(true); setDraggingType(null) }
+      } else if (zone) {
+        if (draggingType !== zone) { setDraggingType(zone); setSingleDragging(false) }
+      } else {
+        if (singleDragging) setSingleDragging(false)
+        if (draggingType) setDraggingType(null)
       }
-      // Not over any drop zone
-      setSingleDragging(false)
-      setDraggingType(null)
     }
 
-    const handleDocDragLeave = (e: DragEvent) => {
+    const handleDragLeave = (e: DragEvent) => {
       e.preventDefault()
       dragCounter--
       if (dragCounter <= 0) {
@@ -137,12 +128,12 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
       }
     }
 
-    const handleDocDrop = (e: DragEvent) => {
+    const handleDrop = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
       dragCounter = 0
       setSingleDragging(false)
-      const prevDraggingType = draggingType
+      const prevType = draggingType
       setDraggingType(null)
 
       const file = e.dataTransfer?.files?.[0]
@@ -153,56 +144,31 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
         return
       }
 
-      // Determine which zone received the drop
-      const target = document.elementFromPoint(e.clientX, e.clientY)
+      const { zone } = getDropTarget(e)
 
-      if (mode === 'single') {
-        const singleEl = singleDropRef.current
-        if (target && singleEl && singleEl.contains(target)) {
-          setSingleFile(file)
-          setError(null)
-          return
-        }
-      }
-
-      // Check separate zones
-      for (const type of ['kredit', 'tabungan', 'deposito'] as TableType[]) {
-        const el = separateDropRefs.current[type]
-        if (target && el && el.contains(target)) {
-          setSeparateFiles(prev => {
-            const filtered = prev.filter(f => f.type !== type)
-            return [...filtered, { type, file, name: file.name, size: file.size }]
-          })
-          setError(null)
-          return
-        }
-      }
-
-      // If dropped outside specific zones, apply to current mode
-      if (mode === 'single') {
+      if (zone === 'single' || (mode === 'single' && zone === null)) {
         setSingleFile(file)
         setError(null)
-      } else if (prevDraggingType) {
-        setSeparateFiles(prev => {
-          const filtered = prev.filter(f => f.type !== prevDraggingType)
-          return [...filtered, { type: prevDraggingType, file, name: file.name, size: file.size }]
-        })
+      } else if (zone) {
+        const t = zone as TableType
+        setSeparateFiles(prev => [...prev.filter(f => f.type !== t), { type: t, file, name: file.name, size: file.size }])
         setError(null)
-      } else {
-        setError('Drag file ke area upload yang sesuai')
+      } else if (prevType) {
+        setSeparateFiles(prev => [...prev.filter(f => f.type !== prevType), { type: prevType, file, name: file.name, size: file.size }])
+        setError(null)
       }
     }
 
-    document.addEventListener('dragenter', handleDocDragEnter, true)
-    document.addEventListener('dragover', handleDocDragOver, true)
-    document.addEventListener('dragleave', handleDocDragLeave, true)
-    document.addEventListener('drop', handleDocDrop, true)
+    document.addEventListener('dragenter', handleDragEnter, true)
+    document.addEventListener('dragover', handleDragOver, true)
+    document.addEventListener('dragleave', handleDragLeave, true)
+    document.addEventListener('drop', handleDrop, true)
 
     return () => {
-      document.removeEventListener('dragenter', handleDocDragEnter, true)
-      document.removeEventListener('dragover', handleDocDragOver, true)
-      document.removeEventListener('dragleave', handleDocDragLeave, true)
-      document.removeEventListener('drop', handleDocDrop, true)
+      document.removeEventListener('dragenter', handleDragEnter, true)
+      document.removeEventListener('dragover', handleDragOver, true)
+      document.removeEventListener('dragleave', handleDragLeave, true)
+      document.removeEventListener('drop', handleDrop, true)
     }
   }, [open, mode, singleDragging, draggingType])
 
@@ -214,10 +180,7 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
   const handleSeparateFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>, type: TableType) => {
     const file = e.target.files?.[0]
     if (file) {
-      setSeparateFiles(prev => {
-        const filtered = prev.filter(f => f.type !== type)
-        return [...filtered, { type, file, name: file.name, size: file.size }]
-      })
+      setSeparateFiles(prev => [...prev.filter(f => f.type !== type), { type, file, name: file.name, size: file.size }])
       setError(null)
     }
   }, [])
@@ -239,7 +202,7 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
     setSuccess(null)
 
     try {
-      const dateStr = uploadDate.toISOString().split('T')[0]
+      const dateStr = uploadDate
 
       if (mode === 'single') {
         if (!singleFile) {
@@ -267,7 +230,7 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
         if (stats.tabungan > 0) parts.push(`${stats.tabungan} Tabungan`)
         if (stats.deposito > 0) parts.push(`${stats.deposito} Deposito`)
 
-        setSuccess(`Berhasil upload! Data: ${parts.join(', ')}`)
+        setSuccess(`Berhasil! ${parts.join(', ')}`)
         onUploadSuccess(dateStr)
 
       } else {
@@ -297,12 +260,15 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
           results.push(`${TABLE_INFO[uf.type].label} (${statCount} baris)`)
         }
 
-        setSuccess(`Berhasil upload! ${results.join(', ')}`)
+        setSuccess(`Berhasil! ${results.join(', ')}`)
         onUploadSuccess(dateStr)
       }
 
       setTimeout(() => {
-        resetState()
+        setSingleFile(null)
+        setSeparateFiles([])
+        setError(null)
+        setSuccess(null)
         onOpenChange(false)
       }, 1500)
 
@@ -334,36 +300,38 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetState(); onOpenChange(v) }}>
-      <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
+      <DialogContent className="sm:max-w-[580px] max-h-[92vh] overflow-y-auto p-0">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-blue-700 to-blue-800 px-5 py-4 rounded-t-lg">
+          <DialogTitle className="flex items-center gap-2 text-white text-base">
+            <Upload className="h-4.5 w-4.5" />
             Upload Data Excel
           </DialogTitle>
-          <DialogDescription>
-            Upload data laporan harian bank. Pilih mode upload sesuai kebutuhan.
+          <DialogDescription className="text-blue-200 text-xs mt-1">
+            Upload laporan harian bank (.xlsx / .xls)
           </DialogDescription>
-        </DialogHeader>
+        </div>
 
-        <div className="space-y-4 pt-2">
-          {/* Date Picker */}
-          <div className="space-y-2">
-            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tanggal Data</Label>
-            <div className="border rounded-md p-2 bg-muted/30">
-              <Calendar
-                mode="single"
-                selected={uploadDate}
-                onSelect={setUploadDate}
-                className="mx-auto"
-              />
-            </div>
+        <div className="px-5 py-4 space-y-4">
+          {/* Date Picker - compact */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+              <CalendarDays className="h-3.5 w-3.5" />
+              Tanggal Data
+            </Label>
+            <Input
+              type="date"
+              value={uploadDate}
+              onChange={(e) => setUploadDate(e.target.value)}
+              className="h-9 text-sm"
+            />
           </div>
 
           {/* Download Template */}
           <Button
             variant="outline"
             size="sm"
-            className="w-full gap-2 text-xs"
+            className="w-full gap-2 text-xs h-8"
             onClick={downloadTemplate}
             disabled={loading}
           >
@@ -373,30 +341,30 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
 
           {/* Mode Tabs */}
           <Tabs value={mode} onValueChange={(v) => { setMode(v as UploadMode); setError(null); setSuccess(null) }}>
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="single" className="text-xs gap-1.5">
+            <TabsList className="grid w-full grid-cols-2 h-9">
+              <TabsTrigger value="single" className="text-xs gap-1.5 h-8">
                 <FileSpreadsheet className="h-3.5 w-3.5" />
                 1 File Lengkap
               </TabsTrigger>
-              <TabsTrigger value="separate" className="text-xs gap-1.5">
+              <TabsTrigger value="separate" className="text-xs gap-1.5 h-8">
                 <Upload className="h-3.5 w-3.5" />
                 Upload Per-Tabel
               </TabsTrigger>
             </TabsList>
 
-            {/* Mode 1: Single File */}
-            <TabsContent value="single" className="space-y-3 mt-3">
-              <p className="text-xs text-muted-foreground">
-                Upload <span className="font-semibold">1 file Excel</span> yang berisi semua data (multi-sheet: Kredit, Mutasi, Tabungan, Deposito).
+            {/* ===== MODE 1: Single File ===== */}
+            <TabsContent value="single" className="mt-3 space-y-2">
+              <p className="text-[11px] text-muted-foreground">
+                Upload <strong>1 file Excel</strong> multi-sheet (Kredit, Mutasi, Tabungan, Deposito).
               </p>
               <div
                 ref={singleDropRef}
-                className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 cursor-pointer ${
+                className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-all duration-200 cursor-pointer ${
                   singleDragging
-                    ? 'border-blue-500 bg-blue-50 scale-[1.02] shadow-lg shadow-blue-100'
+                    ? 'border-blue-500 bg-blue-50 scale-[1.01]'
                     : singleFile
-                    ? 'border-green-500 bg-green-50'
-                    : 'border-muted-foreground/25 hover:border-blue-400 hover:bg-muted/30'
+                    ? 'border-green-400 bg-green-50'
+                    : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50/30'
                 }`}
                 onClick={() => singleInputRef.current?.click()}
               >
@@ -408,124 +376,120 @@ export default function UploadDialog({ open, onOpenChange, onUploadSuccess }: Up
                   onChange={handleSingleFileChange}
                 />
                 {singleFile ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <CheckCircle2 className="h-10 w-10 text-green-600" />
+                  <div className="flex flex-col items-center gap-1.5">
+                    <CheckCircle2 className="h-8 w-8 text-green-500" />
                     <p className="text-sm font-medium text-green-700">{singleFile.name}</p>
-                    <p className="text-xs text-muted-foreground">{(singleFile.size / 1024).toFixed(1)} KB</p>
+                    <p className="text-[11px] text-muted-foreground">{(singleFile.size / 1024).toFixed(1)} KB</p>
                     <button
                       onClick={(e) => { e.stopPropagation(); setSingleFile(null) }}
-                      className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 mt-1"
+                      className="text-[11px] text-red-500 hover:text-red-700 flex items-center gap-1 mt-0.5"
                     >
                       <Trash2 className="h-3 w-3" /> Hapus
                     </button>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center gap-2">
-                    <FileSpreadsheet className={`h-10 w-10 ${singleDragging ? 'text-blue-500 animate-bounce' : 'text-muted-foreground'}`} />
-                    <p className={`text-sm ${singleDragging ? 'text-blue-600 font-semibold' : 'text-muted-foreground'}`}>
-                      {singleDragging ? 'Lepaskan file di sini...' : <>Drag & drop atau <span className="text-blue-600 font-medium">klik untuk pilih</span></>}
+                  <div className="flex flex-col items-center gap-1.5">
+                    <FileSpreadsheet className={`h-8 w-8 ${singleDragging ? 'text-blue-500' : 'text-gray-400'}`} />
+                    <p className="text-xs text-muted-foreground">
+                      <span className="text-blue-600 font-medium">Klik untuk pilih</span> atau drag & drop file
                     </p>
-                    <p className="text-xs text-muted-foreground">.xlsx / .xls (multi-sheet)</p>
+                    <p className="text-[10px] text-gray-400">.xlsx / .xls (multi-sheet)</p>
                   </div>
                 )}
               </div>
             </TabsContent>
 
-            {/* Mode 2: Separate Files */}
-            <TabsContent value="separate" className="space-y-3 mt-3">
-              <p className="text-xs text-muted-foreground">
-                Upload file <span className="font-semibold">terpisah</span> untuk masing-masing tabel. Minimal upload 1 file.
+            {/* ===== MODE 2: Separate Files ===== */}
+            <TabsContent value="separate" className="mt-3 space-y-2">
+              <p className="text-[11px] text-muted-foreground">
+                Upload file <strong>terpisah</strong> untuk masing-masing tabel. Minimal 1 file.
               </p>
 
-              {(['kredit', 'tabungan', 'deposito'] as TableType[]).map((type) => {
-                const info = TABLE_INFO[type]
-                const uploaded = separateFiles.find(f => f.type === type)
-                const Icon = info.icon
+              <div className="space-y-2">
+                {(['kredit', 'tabungan', 'deposito'] as TableType[]).map((type) => {
+                  const info = TABLE_INFO[type]
+                  const uploaded = separateFiles.find(f => f.type === type)
+                  const Icon = info.icon
 
-                return (
-                  <div key={type} className={`border rounded-lg p-3 ${uploaded ? 'border-green-300 bg-green-50/50' : 'border-border'}`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className={`p-1.5 rounded ${info.color}`}>
-                          <Icon className="h-3.5 w-3.5" />
+                  return (
+                    <div key={type} className={`border rounded-lg p-2.5 transition-colors ${uploaded ? 'border-green-300 bg-green-50/50' : 'border-gray-200'}`}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <div className={`p-1 rounded ${info.color}`}>
+                            <Icon className="h-3 w-3" />
+                          </div>
+                          <span className="text-xs font-semibold">{info.label}</span>
+                          {uploaded && <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700 h-5">Ready</Badge>}
                         </div>
-                        <span className="text-xs font-semibold">{info.label}</span>
-                        {uploaded && <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700">Ready</Badge>}
+                        {uploaded && (
+                          <button onClick={() => removeSeparateFile(type)} className="text-muted-foreground hover:text-red-500 p-0.5">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
-                      {uploaded && (
-                        <button onClick={() => removeSeparateFile(type)} className="text-muted-foreground hover:text-red-500">
-                          <X className="h-3.5 w-3.5" />
-                        </button>
+
+                      {uploaded ? (
+                        <div className="flex items-center gap-2 text-[11px] pl-7">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                          <span className="text-green-700 font-medium truncate">{uploaded.name}</span>
+                          <span className="text-muted-foreground ml-auto shrink-0">{(uploaded.size / 1024).toFixed(1)} KB</span>
+                        </div>
+                      ) : (
+                        <div
+                          ref={(el) => { separateDropRefs.current[type] = el }}
+                          className={`ml-7 border border-dashed rounded-md p-3 text-center cursor-pointer transition-all duration-200 ${
+                            draggingType === type ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/20'
+                          }`}
+                          onClick={() => separateInputRefs.current[type]?.click()}
+                        >
+                          <input
+                            ref={(el) => { separateInputRefs.current[type] = el }}
+                            type="file"
+                            accept=".xlsx,.xls"
+                            className="hidden"
+                            onChange={(e) => handleSeparateFileChange(e, type)}
+                          />
+                          <Upload className={`h-3.5 w-3.5 mx-auto mb-0.5 ${draggingType === type ? 'text-blue-500' : 'text-gray-400'}`} />
+                          <p className="text-[10px] text-muted-foreground">
+                            {draggingType === type ? 'Lepaskan...' : 'Klik atau drag & drop'}
+                          </p>
+                        </div>
                       )}
+
+                      <p className="text-[10px] text-muted-foreground mt-1 pl-7">{info.desc}</p>
                     </div>
-
-                    {uploaded ? (
-                      <div className="flex items-center gap-2 text-xs">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
-                        <span className="text-green-700 font-medium truncate">{uploaded.name}</span>
-                        <span className="text-muted-foreground ml-auto shrink-0">{(uploaded.size / 1024).toFixed(1)} KB</span>
-                      </div>
-                    ) : (
-                      <div
-                        ref={(el) => { separateDropRefs.current[type] = el }}
-                        className={`border border-dashed rounded-md p-4 text-center cursor-pointer transition-all duration-200 ${
-                          draggingType === type ? 'border-blue-400 bg-blue-50 scale-[1.02] shadow-md shadow-blue-100' : 'border-muted-foreground/20 hover:border-blue-300 hover:bg-muted/20'
-                        }`}
-                        onClick={() => separateInputRefs.current[type]?.click()}
-                      >
-                        <input
-                          ref={(el) => { separateInputRefs.current[type] = el }}
-                          type="file"
-                          accept=".xlsx,.xls"
-                          className="hidden"
-                          onChange={(e) => handleSeparateFileChange(e, type)}
-                        />
-                        <Upload className={`h-4 w-4 mx-auto mb-1 ${draggingType === type ? 'text-blue-500 animate-bounce' : 'text-muted-foreground'}`} />
-                        <p className={`text-[10px] ${draggingType === type ? 'text-blue-600 font-semibold' : 'text-muted-foreground'}`}>
-                          {draggingType === type ? 'Lepaskan di sini...' : 'Drag & drop atau klik'}
-                        </p>
-                      </div>
-                    )}
-
-                    <p className="text-[10px] text-muted-foreground mt-1.5">{info.desc}</p>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </TabsContent>
           </Tabs>
 
           {/* Error */}
           {error && (
-            <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 p-3 rounded-md">
-              <AlertCircle className="h-4 w-4 shrink-0" />
+            <div className="flex items-center gap-2 text-destructive text-xs bg-destructive/10 p-2.5 rounded-md">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               {error}
             </div>
           )}
 
           {/* Success */}
           {success && (
-            <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 p-3 rounded-md border border-green-200">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <div className="flex items-center gap-2 text-green-700 text-xs bg-green-50 p-2.5 rounded-md border border-green-200">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               {success}
             </div>
           )}
 
           {/* Actions */}
-          <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" onClick={() => { resetState(); onOpenChange(false) }} disabled={loading}>
+          <div className="flex justify-end gap-2 pt-1 pb-1">
+            <Button variant="outline" size="sm" onClick={() => { resetState(); onOpenChange(false) }} disabled={loading} className="h-8 text-xs">
               Batal
             </Button>
-            <Button onClick={handleUpload} disabled={loading || !uploadDate || (mode === 'single' ? !singleFile : separateFiles.length === 0)}>
+            <Button size="sm" onClick={handleUpload} disabled={loading || !uploadDate || (mode === 'single' ? !singleFile : separateFiles.length === 0)} className="h-8 text-xs">
               {loading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Mengupload...
-                </>
+                <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Mengupload...</>
               ) : (
-                <>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Upload & Parse
-                </>
+                <><Upload className="h-3.5 w-3.5 mr-1.5" /> Upload & Parse</>
               )}
             </Button>
           </div>
