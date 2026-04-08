@@ -107,8 +107,8 @@ function KreditTable({ data, filters }: { data: KreditAO[]; filters: DataTablesP
     dpk1to30: data.reduce((s, r) => s + r.dpk1to30, 0),
     dpk: data.reduce((s, r) => s + r.dpk, 0),
     totNpl: data.reduce((s, r) => s + r.totNpl, 0),
-    rr: data.length > 0 ? data.reduce((s, r) => s + r.rr, 0) / data.length : 0,
-    npl: data.length > 0 ? data.reduce((s, r) => s + r.npl, 0) / data.length : 0,
+    rr: data.reduce((s, r) => s + r.os, 0) > 0 ? (data.reduce((s, r) => s + r.lancar, 0) / data.reduce((s, r) => s + r.os, 0)) * 100 : 0,
+    npl: data.reduce((s, r) => s + r.os, 0) > 0 ? (data.reduce((s, r) => s + r.totNpl, 0) / data.reduce((s, r) => s + r.os, 0)) * 100 : 0,
   }), [data])
 
   const toggleSort = (key: string) => {
