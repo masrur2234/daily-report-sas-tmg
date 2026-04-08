@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
     const totalMutasiTabungan = upload.tabunganFO.reduce((sum, t) => sum + t.mutasiOs, 0);
     const totalMutasiDeposito = upload.depositoFO.reduce((sum, d) => sum + d.mutasiOs, 0);
     const totalLancar = upload.kreditAO.reduce((sum, k) => sum + k.lancar, 0);
+    const totalDpk1to30 = upload.kreditAO.reduce((sum, k) => sum + k.dpk1to30, 0);
     const totalDpk = upload.kreditAO.reduce((sum, k) => sum + k.dpk, 0);
     const totalTotNpl = upload.kreditAO.reduce((sum, k) => sum + k.totNpl, 0);
 
@@ -58,11 +59,7 @@ export async function GET(request: NextRequest) {
       totalDeposito: u.depositoFO.reduce((sum, d) => sum + d.osNow, 0),
     }));
 
-    // Parse dailyData dari JSON string
-    const kreditAOParsed = upload.kreditAO.map(k => ({
-      ...k,
-      dailyData: typeof k.dailyData === 'string' ? JSON.parse(k.dailyData || '{}') : (k.dailyData || {}),
-    }));
+    // kreditAO langsung dipakai (dpk1to30 sudah Float field)
 
     return NextResponse.json({
       uploadDate: upload.uploadDate,
@@ -70,9 +67,9 @@ export async function GET(request: NextRequest) {
       summary: {
         totalOsKredit, avgRR, avgNPL, totalOsTabungan, totalOsDeposito,
         totalMutasiOs, totalMutasiTabungan, totalMutasiDeposito,
-        totalLancar, totalDpk, totalTotNpl, komposisi,
+        totalLancar, totalDpk1to30, totalDpk, totalTotNpl, komposisi,
       },
-      kreditAO: kreditAOParsed,
+      kreditAO: upload.kreditAO,
       mutasiAO: upload.mutasiAO,
       tabunganFO: upload.tabunganFO,
       depositoFO: upload.depositoFO,
