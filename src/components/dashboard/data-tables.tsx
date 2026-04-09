@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
-import { ArrowUpDown, ArrowUp, ArrowDown, TrendingUp, TrendingDown, FileText, ArrowRightLeft, PiggyBank } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, TrendingUp, TrendingDown, FileText, ArrowRightLeft, PiggyBank, Landmark, Wallet } from 'lucide-react'
 import { formatRupiah } from './summary-cards'
 
 interface KreditAO {
@@ -122,10 +122,10 @@ function KreditTable({ data, filters }: { data: KreditAO[]; filters: DataTablesP
 
   return (
     <div className="border rounded-lg overflow-hidden">
-      <ScrollArea className="max-h-[520px]">
+      <div className="max-h-[520px] overflow-y-auto">
         <div className="min-w-[860px]">
           <table className="w-full text-xs border-collapse">
-            <thead>
+            <thead className="sticky top-0 z-10">
               <tr className="bg-blue-700">
                 <th className={`${thClass} w-10`}>No</th>
                 <th className={`${thClass} text-left min-w-[150px]`}>Nama AO</th>
@@ -197,7 +197,7 @@ function KreditTable({ data, filters }: { data: KreditAO[]; filters: DataTablesP
             </tbody>
           </table>
         </div>
-      </ScrollArea>
+      </div>
     </div>
   )
 }
@@ -220,10 +220,10 @@ function MutasiTable({ data }: { data: MutasiAO[] }) {
 
   return (
     <div className="border rounded-lg overflow-hidden">
-      <ScrollArea className="max-h-[520px]">
+      <div className="max-h-[520px] overflow-y-auto">
         <div className="min-w-[820px]">
           <table className="w-full text-xs border-collapse">
-            <thead>
+            <thead className="sticky top-0 z-10">
               <tr className="bg-blue-700">
                 <th className={`${thClass} w-10`}>No</th>
                 <th className={`${thClass} text-left`}>Nama AO</th>
@@ -282,78 +282,31 @@ function MutasiTable({ data }: { data: MutasiAO[] }) {
             </tbody>
           </table>
         </div>
-      </ScrollArea>
+      </div>
     </div>
   )
 }
 
-// ---------- Tabungan & Deposito Combined Table ----------
-function FundingTable({ tabungan, deposito }: { tabungan: TabunganFO[]; deposito: DepositoFO[] }) {
+// ---------- Tabungan Table (separate) ----------
+function TabunganTable({ data }: { data: TabunganFO[] }) {
+  const totals = useMemo(() => ({
+    noaBefore: data.reduce((s, r) => s + r.noaBefore, 0),
+    osBefore: data.reduce((s, r) => s + r.osBefore, 0),
+    noaNow: data.reduce((s, r) => s + r.noaNow, 0),
+    osNow: data.reduce((s, r) => s + r.osNow, 0),
+    mutasiNoa: data.reduce((s, r) => s + r.mutasiNoa, 0),
+    mutasiOs: data.reduce((s, r) => s + r.mutasiOs, 0),
+  }), [data])
+
   const thClass = "py-2.5 px-3 text-xs font-semibold text-white text-center select-none"
   const tdClass = "py-2 px-3 text-xs text-right font-mono tabular-nums"
 
-  const tabunganTotals = useMemo(() => ({
-    noaBefore: tabungan.reduce((s, r) => s + r.noaBefore, 0),
-    osBefore: tabungan.reduce((s, r) => s + r.osBefore, 0),
-    noaNow: tabungan.reduce((s, r) => s + r.noaNow, 0),
-    osNow: tabungan.reduce((s, r) => s + r.osNow, 0),
-    mutasiNoa: tabungan.reduce((s, r) => s + r.mutasiNoa, 0),
-    mutasiOs: tabungan.reduce((s, r) => s + r.mutasiOs, 0),
-  }), [tabungan])
-
-  const depositoTotals = useMemo(() => ({
-    noaBefore: deposito.reduce((s, r) => s + r.noaBefore, 0),
-    osBefore: deposito.reduce((s, r) => s + r.osBefore, 0),
-    noaNow: deposito.reduce((s, r) => s + r.noaNow, 0),
-    osNow: deposito.reduce((s, r) => s + r.osNow, 0),
-    mutasiNoa: deposito.reduce((s, r) => s + r.mutasiNoa, 0),
-    mutasiOs: deposito.reduce((s, r) => s + r.mutasiOs, 0),
-  }), [deposito])
-
-  const renderRows = (data: (TabunganFO | DepositoFO)[]) => {
-    if (data.length === 0) return null
-    return data.map((item, idx) => (
-      <tr key={item.id} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'} hover:bg-blue-50/80 transition-colors`}>
-        <td className={`${tdClass} text-center text-muted-foreground font-sans`}>{idx + 1}</td>
-        <td className="py-2 px-3 text-xs font-medium text-left">{item.nama}</td>
-        <td className={tdClass}>{item.noaBefore.toLocaleString('id-ID')}</td>
-        <td className={tdClass}>{formatRupiah(item.osBefore)}</td>
-        <td className={`${tdClass} font-semibold`}>{item.noaNow.toLocaleString('id-ID')}</td>
-        <td className={`${tdClass} font-semibold`}>{formatRupiah(item.osNow)}</td>
-        <td className={`${tdClass} font-semibold ${item.mutasiNoa >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-          {item.mutasiNoa >= 0 ? '+' : ''}{item.mutasiNoa.toLocaleString('id-ID')}
-        </td>
-        <td className={`${tdClass} font-semibold ${item.mutasiOs >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-          {item.mutasiOs >= 0 ? '+' : ''}{formatRupiah(item.mutasiOs)}
-        </td>
-      </tr>
-    ))
-  }
-
-  const renderTotalRow = (totals: { noaBefore: number; osBefore: number; noaNow: number; osNow: number; mutasiNoa: number; mutasiOs: number }, label: string) => (
-    <tr className="bg-green-600 text-white font-bold">
-      <td className={`${tdClass} text-center`} colSpan={2}>{label}</td>
-      <td className={tdClass}>{totals.noaBefore.toLocaleString('id-ID')}</td>
-      <td className={tdClass}>{formatRupiah(totals.osBefore)}</td>
-      <td className={tdClass}>{totals.noaNow.toLocaleString('id-ID')}</td>
-      <td className={tdClass}>{formatRupiah(totals.osNow)}</td>
-      <td className={tdClass}>
-        {totals.mutasiNoa >= 0 ? '+' : ''}{totals.mutasiNoa.toLocaleString('id-ID')}
-      </td>
-      <td className={tdClass}>
-        {totals.mutasiOs >= 0 ? '+' : ''}{formatRupiah(totals.mutasiOs)}
-      </td>
-    </tr>
-  )
-
-  const hasAnyData = tabungan.length > 0 || deposito.length > 0
-
   return (
     <div className="border rounded-lg overflow-hidden">
-      <ScrollArea className="max-h-[600px]">
+      <div className="max-h-[400px] overflow-y-auto">
         <div className="min-w-[820px]">
           <table className="w-full text-xs border-collapse">
-            <thead>
+            <thead className="sticky top-0 z-10">
               <tr className="bg-blue-700">
                 <th className={`${thClass} w-10`}>No</th>
                 <th className={`${thClass} text-left`}>Nama FO</th>
@@ -361,8 +314,8 @@ function FundingTable({ tabungan, deposito }: { tabungan: TabunganFO[]; deposito
                 <th className={`${thClass} text-right`}>OS</th>
                 <th className={`${thClass} text-right`}>NOA</th>
                 <th className={`${thClass} text-right`}>OS</th>
-                <th className={`${thClass} text-right`}>MUTASI</th>
-                <th className={`${thClass} text-right`}>MUTASI</th>
+                <th className={`${thClass} text-right`}>MUTASI NOA</th>
+                <th className={`${thClass} text-right`}>MUTASI OS</th>
               </tr>
               <tr className="bg-blue-500">
                 <th className="py-1.5 px-3 text-[10px] text-white/70 text-center" colSpan={2}></th>
@@ -372,43 +325,141 @@ function FundingTable({ tabungan, deposito }: { tabungan: TabunganFO[]; deposito
               </tr>
             </thead>
             <tbody>
-              {!hasAnyData ? (
+              {data.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-10 text-muted-foreground">Tidak ada data tabungan atau deposito</td>
+                  <td colSpan={8} className="text-center py-10 text-muted-foreground">Tidak ada data tabungan</td>
                 </tr>
               ) : (
                 <>
-                  {tabungan.length > 0 && (
-                    <tr className="bg-blue-100">
-                      <td className="py-2 px-3 text-xs font-bold text-blue-800 uppercase tracking-wider" colSpan={8}>
-                        TABUNGAN
+                  {data.map((item, idx) => (
+                    <tr key={item.id} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'} hover:bg-blue-50/80 transition-colors`}>
+                      <td className={`${tdClass} text-center text-muted-foreground font-sans`}>{idx + 1}</td>
+                      <td className="py-2 px-3 text-xs font-medium text-left">{item.nama}</td>
+                      <td className={tdClass}>{item.noaBefore.toLocaleString('id-ID')}</td>
+                      <td className={tdClass}>{formatRupiah(item.osBefore)}</td>
+                      <td className={`${tdClass} font-semibold`}>{item.noaNow.toLocaleString('id-ID')}</td>
+                      <td className={`${tdClass} font-semibold`}>{formatRupiah(item.osNow)}</td>
+                      <td className={`${tdClass} font-semibold ${item.mutasiNoa >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        {item.mutasiNoa >= 0 ? '+' : ''}{item.mutasiNoa.toLocaleString('id-ID')}
+                      </td>
+                      <td className={`${tdClass} font-semibold ${item.mutasiOs >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        {item.mutasiOs >= 0 ? '+' : ''}{formatRupiah(item.mutasiOs)}
                       </td>
                     </tr>
-                  )}
-                  {renderRows(tabungan)}
-                  {tabungan.length > 0 && renderTotalRow(tabunganTotals, 'JUMLAH TABUNGAN')}
-
-                  {deposito.length > 0 && (
-                    <tr className="bg-blue-100">
-                      <td className="py-2 px-3 text-xs font-bold text-blue-800 uppercase tracking-wider" colSpan={8}>
-                        DEPOSITO
-                      </td>
-                    </tr>
-                  )}
-                  {renderRows(deposito)}
-                  {deposito.length > 0 && renderTotalRow(depositoTotals, 'JUMLAH DEPOSITO')}
+                  ))}
+                  <tr className="bg-green-600 text-white font-bold">
+                    <td className={`${tdClass} text-center`} colSpan={2}>JUMLAH TABUNGAN</td>
+                    <td className={tdClass}>{totals.noaBefore.toLocaleString('id-ID')}</td>
+                    <td className={tdClass}>{formatRupiah(totals.osBefore)}</td>
+                    <td className={tdClass}>{totals.noaNow.toLocaleString('id-ID')}</td>
+                    <td className={tdClass}>{formatRupiah(totals.osNow)}</td>
+                    <td className={tdClass}>
+                      {totals.mutasiNoa >= 0 ? '+' : ''}{totals.mutasiNoa.toLocaleString('id-ID')}
+                    </td>
+                    <td className={tdClass}>
+                      {totals.mutasiOs >= 0 ? '+' : ''}{formatRupiah(totals.mutasiOs)}
+                    </td>
+                  </tr>
                 </>
               )}
             </tbody>
           </table>
         </div>
-      </ScrollArea>
+      </div>
+    </div>
+  )
+}
+
+// ---------- Deposito Table (separate) ----------
+function DepositoTable({ data }: { data: DepositoFO[] }) {
+  const totals = useMemo(() => ({
+    noaBefore: data.reduce((s, r) => s + r.noaBefore, 0),
+    osBefore: data.reduce((s, r) => s + r.osBefore, 0),
+    noaNow: data.reduce((s, r) => s + r.noaNow, 0),
+    osNow: data.reduce((s, r) => s + r.osNow, 0),
+    mutasiNoa: data.reduce((s, r) => s + r.mutasiNoa, 0),
+    mutasiOs: data.reduce((s, r) => s + r.mutasiOs, 0),
+  }), [data])
+
+  const thClass = "py-2.5 px-3 text-xs font-semibold text-white text-center select-none"
+  const tdClass = "py-2 px-3 text-xs text-right font-mono tabular-nums"
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <div className="max-h-[400px] overflow-y-auto">
+        <div className="min-w-[820px]">
+          <table className="w-full text-xs border-collapse">
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-blue-700">
+                <th className={`${thClass} w-10`}>No</th>
+                <th className={`${thClass} text-left`}>Nama FO</th>
+                <th className={`${thClass} text-right`}>NOA</th>
+                <th className={`${thClass} text-right`}>OS</th>
+                <th className={`${thClass} text-right`}>NOA</th>
+                <th className={`${thClass} text-right`}>OS</th>
+                <th className={`${thClass} text-right`}>MUTASI NOA</th>
+                <th className={`${thClass} text-right`}>MUTASI OS</th>
+              </tr>
+              <tr className="bg-blue-500">
+                <th className="py-1.5 px-3 text-[10px] text-white/70 text-center" colSpan={2}></th>
+                <th className="py-1.5 px-3 text-[10px] text-white/70 text-right" colSpan={2}>PERIODE SEBELUMNYA</th>
+                <th className="py-1.5 px-3 text-[10px] text-white/70 text-right" colSpan={2}>PERIODE SEKARANG</th>
+                <th className="py-1.5 px-3 text-[10px] text-white/70 text-right" colSpan={2}>PERTUMBUHAN</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="text-center py-10 text-muted-foreground">Tidak ada data deposito</td>
+                </tr>
+              ) : (
+                <>
+                  {data.map((item, idx) => (
+                    <tr key={item.id} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-blue-50/40'} hover:bg-blue-50/80 transition-colors`}>
+                      <td className={`${tdClass} text-center text-muted-foreground font-sans`}>{idx + 1}</td>
+                      <td className="py-2 px-3 text-xs font-medium text-left">{item.nama}</td>
+                      <td className={tdClass}>{item.noaBefore.toLocaleString('id-ID')}</td>
+                      <td className={tdClass}>{formatRupiah(item.osBefore)}</td>
+                      <td className={`${tdClass} font-semibold`}>{item.noaNow.toLocaleString('id-ID')}</td>
+                      <td className={`${tdClass} font-semibold`}>{formatRupiah(item.osNow)}</td>
+                      <td className={`${tdClass} font-semibold ${item.mutasiNoa >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        {item.mutasiNoa >= 0 ? '+' : ''}{item.mutasiNoa.toLocaleString('id-ID')}
+                      </td>
+                      <td className={`${tdClass} font-semibold ${item.mutasiOs >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        {item.mutasiOs >= 0 ? '+' : ''}{formatRupiah(item.mutasiOs)}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-green-600 text-white font-bold">
+                    <td className={`${tdClass} text-center`} colSpan={2}>JUMLAH DEPOSITO</td>
+                    <td className={tdClass}>{totals.noaBefore.toLocaleString('id-ID')}</td>
+                    <td className={tdClass}>{formatRupiah(totals.osBefore)}</td>
+                    <td className={tdClass}>{totals.noaNow.toLocaleString('id-ID')}</td>
+                    <td className={tdClass}>{formatRupiah(totals.osNow)}</td>
+                    <td className={tdClass}>
+                      {totals.mutasiNoa >= 0 ? '+' : ''}{totals.mutasiNoa.toLocaleString('id-ID')}
+                    </td>
+                    <td className={tdClass}>
+                      {totals.mutasiOs >= 0 ? '+' : ''}{formatRupiah(totals.mutasiOs)}
+                    </td>
+                  </tr>
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   )
 }
 
 // ---------- Main Component ----------
 export default function DataTables({ kreditAO, mutasiAO, tabunganFO, depositoFO, uploadDate, filters }: DataTablesProps) {
+  // Debug: log data counts
+  useEffect(() => {
+    console.log(`[DataTables] kredit=${kreditAO.length} mutasi=${mutasiAO.length} tabungan=${tabunganFO.length} deposito=${depositoFO.length}`)
+  }, [kreditAO.length, mutasiAO.length, tabunganFO.length, depositoFO.length])
+
   return (
     <div className="space-y-6">
       {/* Section 1: Kredit (AO) Table */}
@@ -431,14 +482,24 @@ export default function DataTables({ kreditAO, mutasiAO, tabunganFO, depositoFO,
         <MutasiTable data={mutasiAO} />
       </div>
 
-      {/* Section 3: Tabungan & Deposito */}
+      {/* Section 3: Tabungan (separate table) */}
       <div>
         <div className="flex items-center gap-2 mb-3">
-          <PiggyBank className="h-4 w-4 text-blue-700" />
-          <h3 className="text-sm font-bold text-blue-800 uppercase tracking-wide">Tabungan & Deposito (Front Office)</h3>
-          <Badge variant="secondary" className="text-[10px]">{tabunganFO.length} Tabungan &bull; {depositoFO.length} Deposito</Badge>
+          <Wallet className="h-4 w-4 text-emerald-700" />
+          <h3 className="text-sm font-bold text-emerald-800 uppercase tracking-wide">Tabungan (Front Office)</h3>
+          <Badge variant="secondary" className="text-[10px]">{tabunganFO.length} FO</Badge>
         </div>
-        <FundingTable tabungan={tabunganFO} deposito={depositoFO} />
+        <TabunganTable data={tabunganFO} />
+      </div>
+
+      {/* Section 4: Deposito (separate table) */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <Landmark className="h-4 w-4 text-purple-700" />
+          <h3 className="text-sm font-bold text-purple-800 uppercase tracking-wide">Deposito (Front Office)</h3>
+          <Badge variant="secondary" className="text-[10px]">{depositoFO.length} FO</Badge>
+        </div>
+        <DepositoTable data={depositoFO} />
       </div>
     </div>
   )
