@@ -277,20 +277,15 @@ function parseFundingTransposed(sheet: XLSX.WorkSheet): any[] {
   return result;
 }
 
-// ---------- Smart Parser: coba standard dulu, fallback ke transposed ----------
+// ---------- Smart Parser: selalu coba kedua parser, pilih yang lebih banyak ----------
 function parseFundingSmart(sheet: XLSX.WorkSheet): any[] {
-  // Coba standard parser dulu
+  // Selalu coba kedua parser
   const standardResult = parseFundingFromSheet(sheet);
-
-  if (standardResult.length >= 2) {
-    console.log(`[parseFundingSmart] Standard parser: ${standardResult.length} rows`);
-    return standardResult;
-  }
-
-  // Fallback: coba transposed parser
   const transposedResult = parseFundingTransposed(sheet);
-  console.log(`[parseFundingSmart] Transposed parser: ${transposedResult.length} rows`);
 
+  console.log(`[parseFundingSmart] Standard: ${standardResult.length} rows, Transposed: ${transposedResult.length} rows`);
+
+  // Pilih parser yang menghasilkan lebih banyak data
   if (transposedResult.length > standardResult.length) {
     return transposedResult;
   }
