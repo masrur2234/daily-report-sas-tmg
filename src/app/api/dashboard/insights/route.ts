@@ -1,38 +1,73 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ZAI from 'z-ai-web-dev-sdk';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+
+// Cek ketersediaan AI SDK config
+function getAiConfig(): { baseUrl: string; apiKey: string } | null {
+  try {
+    const configPaths = [
+      join(process.cwd(), '.z-ai-config'),
+      '/etc/.z-ai-config',
+      join(process.env.HOME || '', '.z-ai-config'),
+    ];
+    for (const p of configPaths) {
+      if (existsSync(p)) {
+        const raw = readFileSync(p, 'utf-8').trim();
+        const config = JSON.parse(raw);
+        if (config.baseUrl && config.apiKey) return config;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Check once at module load
+const aiConfig = getAiConfig();
 
 export async function POST(request: NextRequest) {
   try {
+    // Cek config dulu sebelum apapun
+    if (!aiConfig) {
+      return NextResponse.json({
+        error: 'AI Insights tidak tersedia di environment ini. Fitur ini hanya tersedia di server yang terhubung dengan AI service internal.',
+        unavailable: true,
+      }, { status: 503 });
+    }
+
     const body = await request.json();
     const { summary, kreditAO, mutasiAO, tabunganFO, depositoFO } = body;
-    
+
     if (!summary || !kreditAO) {
       return NextResponse.json({ error: 'Data tidak lengkap' }, { status: 400 });
     }
-    
+
+    // Dynamic import SDK only when config exists
+    const ZAI = (await import('z-ai-web-dev-sdk')).default;
     const zai = await ZAI.create();
-    
+
     // Find best and worst performers
     const sortedByRR = [...kreditAO].sort((a, b) => a.rr - b.rr);
     const sortedByNPL = [...kreditAO].sort((a, b) => b.npl - a.npl);
     const sortedByOS = [...kreditAO].sort((a, b) => b.os - a.os);
-    
+
     const worstRR = sortedByRR[0];
     const bestRR = sortedByRR[sortedByRR.length - 1];
     const worstNPL = sortedByNPL[0];
-    const bestMutasi = mutasiAO && mutasiAO.length > 0 
-      ? [...mutasiAO].sort((a, b) => b.mutasiOs - a.mutasiOs)[0] 
+    const bestMutasi = mutasiAO && mutasiAO.length > 0
+      ? [...mutasiAO].sort((a, b) => b.mutasiOs - a.mutasiOs)[0]
       : null;
-    const bestTabungan = tabunganFO && tabunganFO.length > 0 
-      ? [...tabunganFO].sort((a, b) => b.os - a.os)[0] 
+    const bestTabungan = tabunganFO && tabunganFO.length > 0
+      ? [...tabunganFO].sort((a, b) => b.os - a.os)[0]
       : null;
-    const bestDeposito = depositoFO && depositoFO.length > 0 
-      ? [...depositoFO].sort((a, b) => b.os - a.os)[0] 
+    const bestDeposito = depositoFO && depositoFO.length > 0
+      ? [...depositoFO].sort((a, b) => b.os - a.os)[0]
       : null;
-    
-    const formatRupiah = (num: number) => 
+
+    const formatRupiah = (num: number) =>
       new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
-    
+
     const dataContext = `
 DATA DASHBOARD BANK:
 
@@ -67,11 +102,11 @@ ${bestDeposito ? `== FO DENGAN OS DEPOSITO TERBESAR ==
 - ${bestDeposito.nama}: ${formatRupiah(bestDeposito.os)}` : ''}
 
 == DETAIL AO (${kreditAO.length} total) ==
-${kreditAO.map((k: { nama: string; os: number; rr: number; npl: number }) => 
+${kreditAO.map((k: { nama: string; os: number; rr: number; npl: number }) =>
   `- ${k.nama}: OS=${formatRupiah(k.os)}, RR=${k.rr?.toFixed(2)}%, NPL=${k.npl?.toFixed(2)}%`
 ).join('\n')}
 `.trim();
-    
+
     const completion = await zai.chat.completions.create({
       messages: [
         {
@@ -96,15 +131,15 @@ Jangan gunakan markdown yang berlebihan. Cukup gunakan bold untuk penekanan.`
       ],
       thinking: { type: 'disabled' }
     });
-    
+
     const insight = completion.choices[0]?.message?.content || 'Tidak dapat menghasilkan insight.';
-    
+
     return NextResponse.json({ insight });
-    
+
   } catch (error) {
     console.error('Insight generation error:', error);
-    return NextResponse.json({ 
-      error: error instanceof Error ? error.message : 'Terjadi kesalahan saat membuat insight' 
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Terjadi kesalahan saat membuat insight'
     }, { status: 500 });
   }
 }
